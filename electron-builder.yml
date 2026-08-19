@@ -118,11 +118,19 @@ dmg:
 # ---- Windows ----
 win:
   icon: build/icon.ico
+  # TEMPORARY — REVERT BEFORE MERGE. Portable/arm64 only: a single self-contained
+  # .exe is all the WSL2 test needs, and it needs no install step to run. Building
+  # nsis as well would double the packaging work and emit an installer nobody is
+  # going to run for this. Restore the commented block below.
   target:
-    - target: nsis
-      arch: [x64, arm64]
     - target: portable
-      arch: [x64, arm64]
+      arch: [arm64]
+  # --- restore this ---
+  # target:
+  #   - target: nsis
+  #     arch: [x64, arm64]
+  #   - target: portable
+  #     arch: [x64, arm64]
 
 nsis:
   oneClick: false

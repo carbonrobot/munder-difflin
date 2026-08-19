@@ -7,6 +7,10 @@ on:
   push:
     tags:
       - "v*"
+    # TEMPORARY — REVERT BEFORE MERGE. Builds on every push to the WSL branch so
+    # the arm64 portable .exe is ready without a manual dispatch.
+    branches:
+      - feat/wsl2-spawn-target
   workflow_dispatch:
 
 permissions:
@@ -20,23 +24,37 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            args: --mac
-          - os: windows-2022
-            args: --win --x64
-          - os: ubuntu-latest
-            args: --linux --x64
-          # ARM64 on NATIVE runners. Cross-compiling these is not an option:
+          # ┌───────────────────────────────────────────────────────────────────┐
+          # │ TEMPORARY — REVERT BEFORE MERGE.                                  │
+          # │                                                                   │
+          # │ Trimmed to the single runner needed to test the WSL2 spawn path:  │
+          # │ that branch only executes when process.platform === 'win32', so   │
+          # │ the mac/linux/x64 jobs cannot exercise it and would only burn     │
+          # │ minutes. macos-latest is billed at 10x and windows at 2x, so the  │
+          # │ four removed jobs cost far more than the one that matters.        │
+          # │                                                                   │
+          # │ Restore by uncommenting the four entries below (or reverting the  │
+          # │ commit that introduced this block).                               │
+          # └───────────────────────────────────────────────────────────────────┘
+          - os: windows-11-arm
+            args: --win --arm64
+          # --- restore these ---
+          # - os: macos-latest
+          #   args: --mac
+          # - os: windows-2022
+          #   args: --win --x64
+          # - os: ubuntu-latest
+          #   args: --linux --x64
+          # - os: ubuntu-24.04-arm
+          #   args: --linux --arm64
+          #
+          # ARM64 must build on NATIVE runners. Cross-compiling is not an option:
           # electron-builder needs wine to run rcedit/signtool for a Windows
           # target, and @electron/rebuild matches the ARCH but not the PLATFORM,
           # so a Linux-hosted --win --arm64 build silently ships a Linux
           # node-pty.node inside the Windows package. It packages "successfully"
           # and then dies at runtime. One runner per platform+arch is the only
           # way this stays honest.
-          - os: windows-11-arm
-            args: --win --arm64
-          - os: ubuntu-24.04-arm
-            args: --linux --arm64
     steps:
       # "--win --arm64" -> "arm64". Used to keep artifact and checksum names
       # unique now that one OS appears twice in the matrix.
