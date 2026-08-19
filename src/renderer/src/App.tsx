@@ -18,6 +18,7 @@ import { UpdateToast } from '@/components/UpdateToast';
 import { UpdateBadge } from '@/components/UpdateBadge';
 import { useAppTheme, toggleAppTheme } from '@/design/theme';
 import { SettingsModal, type Section as SettingsSection } from '@/components/SettingsModal';
+import { WslFirstRunPrompt } from '@/components/WslFirstRunPrompt';
 import { PixelPanel } from '@/components/PixelPanel';
 import { PixelButton } from '@/components/PixelButton';
 import { Icon } from '@/components/Icon';
@@ -447,6 +448,10 @@ export function App() {
           onConfigChange={setConfig}
         />
       )}
+
+      {/* Self-gating: null unless main reports needsChoice (Windows + a usable
+          distro + never answered), so this fires exactly once. */}
+      <WslFirstRunPrompt />
 
       {settingsOpen && (
         <SettingsModal

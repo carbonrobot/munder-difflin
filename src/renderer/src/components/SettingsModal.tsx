@@ -20,6 +20,7 @@ import { OfficeThemePicker } from './OfficeThemePicker';
 import { McpDefaultsSettings } from './McpDefaultsSettings';
 import { IntegrationsRegistry } from './IntegrationsRegistry';
 import { AiEnginesSettings } from './AiEnginesSettings';
+import { WslSettings } from './WslSettings';
 import { REALTIME_MODEL } from '@shared/realtimePricing';
 import { RealtimeDevicePicker } from '@/realtime/DevicePicker';
 import { CostHud } from '@/realtime/CostHud';
@@ -1083,6 +1084,8 @@ export function SettingsModal({ config, onClose, initialSection }: SettingsModal
                       <div style={{ height: 1, background: 'var(--cth-ink-300)' }} />
 
                       <AiEnginesSettings config={config} />
+
+                      <WslSettings />
 
                       <div style={{ height: 1, background: 'var(--cth-ink-300)' }} />
 

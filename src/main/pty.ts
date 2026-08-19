@@ -6,6 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { ensureKilled } from './procKill';
 import { expandTilde } from './fs';
 import { captureFromLoginShell, userShellPath } from './shellEnv';
+import { readConfig } from './config';
+import {
+  resolveWslTarget, detectDistros, resolveWslCommand, captureWslPath, buildWslSpawn, toWslPath
+} from './wsl';
 
 /** APPEND the hive's bundled-node dir (`<HIVE_ROOT>/bin/runtime`, which holds a
  *  shim literally named `node`) to a child's PATH.
@@ -530,19 +534,36 @@ export class PtyManager {
     // but any other caller reaching the PTY directly gets the same treatment —
     // `existsSync('~/dev/foo')` is always false, only a shell expands `~`.
     opts = { ...opts, cwd: expandTilde(opts.cwd) };
-    if (!existsSync(opts.cwd)) {
+
+    // WSL TARGET. Decided per spawn from persisted config, because the user can
+    // flip it in Settings without restarting. `native` keeps every existing code
+    // path byte-for-byte; only an explicit 'wsl' selection diverges below.
+    const wslTarget = resolveWslTarget(readConfig(), process.platform, detectDistros());
+    const useWsl = wslTarget.mode === 'wsl' && !!wslTarget.distro;
+
+    // The cwd lives INSIDE the distro when targeting WSL, so a Windows-side
+    // existsSync() is meaningless there (it would reject every /home/... path).
+    // wsl.exe's own `--cd` reports a bad directory straight into the terminal,
+    // and probing it here would cost a round trip on every single spawn.
+    if (!useWsl && !existsSync(opts.cwd)) {
       return { ok: false, error: `cwd does not exist: ${opts.cwd}` };
     }
-    const resolved = this.resolveCommand(opts.command).path;
+    const resolved = useWsl ? opts.command : this.resolveCommand(opts.command).path;
     try {
       // Build a user-shell PATH so child can resolve subprocess deps. Cached
       // for the session (shellEnv.userShellPath, fenced against rc-file noise) —
       // the interactive-shell launch it replaces cost ~1s of main-thread freeze
       // on EVERY spawn.
-      const userPath = withHiveRuntimeFallback(
-        process.platform === 'win32' ? (process.env.PATH || '') : userShellPath(),
-        opts.env?.HIVE_ROOT
-      );
+      // In WSL mode the PATH must come from INSIDE the distro, stripped of every
+      // Windows-interop entry - a login shell there resolves `claude` to the
+      // Windows binary on /mnt/c and finds no `node` at all (nvm loads from
+      // .bashrc). captureWslPath handles both; see wsl.ts.
+      const userPath = useWsl
+        ? captureWslPath(wslTarget.distro!, wslTarget.user)
+        : withHiveRuntimeFallback(
+            process.platform === 'win32' ? (process.env.PATH || '') : userShellPath(),
+            opts.env?.HIVE_ROOT
+          );
 
       // On Windows, .cmd/.bat files (and extensionless shims) cannot be executed
       // directly by CreateProcess — only .exe/.com can. Two ways out, in order of
@@ -563,7 +584,39 @@ export class PtyManager {
         : null;
       let file: string;
       let spawnArgs: string[] | string;
-      if (typeof opts.shellScript === 'string') {
+      if (useWsl) {
+        // WSL: exec directly inside the distro. `-e` means no shell parses argv,
+        // so the multi-line hive protocol prompt survives byte-exactly - the whole
+        // reason this target exists (cmd.exe truncates it at the first newline).
+        const distro = wslTarget.distro!;
+        if (typeof opts.shellScript === 'string') {
+          // Missing-CLI auto-install: a visible script, run by the distro's bash.
+          // -lc (login, non-interactive) matches the unix arm; PATH is exported
+          // through env below so npm/node resolve to their Linux builds.
+          const built = buildWslSpawn({
+            distro, user: wslTarget.user, cwd: opts.cwd,
+            command: '/bin/bash', args: ['-lc', opts.shellScript],
+            env: opts.env, path: userPath
+          });
+          file = built.file; spawnArgs = built.args;
+        } else {
+          // Resolve to an absolute in-distro path FIRST: `-e` does no PATH lookup,
+          // and the default in-distro PATH would find the Windows build on /mnt/c.
+          const inDistro = resolveWslCommand(distro, opts.command, wslTarget.user);
+          if (!inDistro) {
+            return {
+              ok: false,
+              error: `"${opts.command}" is not installed inside WSL (${distro}). `
+                + `Install it in the distro, or switch the terminal target to Windows in Settings.`
+            };
+          }
+          const built = buildWslSpawn({
+            distro, user: wslTarget.user, cwd: opts.cwd,
+            command: inDistro, args: opts.args, env: opts.env, path: userPath
+          });
+          file = built.file; spawnArgs = built.args;
+        }
+      } else if (typeof opts.shellScript === 'string') {
         // Missing-CLI auto-install: run a banner + install command through the
         // platform shell so it streams to this same Terminal tab. On Windows we
         // hand cmd.exe a verbatim STRING (`/d /s /c "<script>"`) — node-pty passes
@@ -638,7 +691,11 @@ export class PtyManager {
         name: 'xterm-256color',
         cols: opts.cols ?? 100,
         rows: opts.rows ?? 30,
-        cwd: opts.cwd,
+        // wsl.exe is a WINDOWS process, so node-pty's cwd must be a path Windows
+        // can chdir into. The directory the agent actually works in is carried by
+        // `--cd` (see buildWslSpawn); handing a /home/... path to CreateProcess
+        // fails the spawn outright.
+        cwd: useWsl ? (process.env.USERPROFILE || process.env.SystemRoot || 'C:\\') : opts.cwd,
         env: {
           ...process.env,
           PATH: userPath,

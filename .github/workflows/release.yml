@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.os }} ${{ matrix.args }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -23,10 +23,27 @@ jobs:
           - os: macos-latest
             args: --mac
           - os: windows-2022
-            args: --win
+            args: --win --x64
           - os: ubuntu-latest
-            args: --linux
+            args: --linux --x64
+          # ARM64 on NATIVE runners. Cross-compiling these is not an option:
+          # electron-builder needs wine to run rcedit/signtool for a Windows
+          # target, and @electron/rebuild matches the ARCH but not the PLATFORM,
+          # so a Linux-hosted --win --arm64 build silently ships a Linux
+          # node-pty.node inside the Windows package. It packages "successfully"
+          # and then dies at runtime. One runner per platform+arch is the only
+          # way this stays honest.
+          - os: windows-11-arm
+            args: --win --arm64
+          - os: ubuntu-24.04-arm
+            args: --linux --arm64
     steps:
+      # "--win --arm64" -> "arm64". Used to keep artifact and checksum names
+      # unique now that one OS appears twice in the matrix.
+      - name: Derive arch tag
+        shell: bash
+        run: echo "ARCH_TAG=$(echo '${{ matrix.args }}' | grep -oE 'arm64|x64' | tail -1)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -85,16 +102,16 @@ jobs:
           files=$(ls *.dmg *.zip *.exe *.AppImage 2>/dev/null || true)
           [ -z "$files" ] && { echo "no artifacts to hash"; exit 0; }
           if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum $files > "SHA256SUMS-${{ matrix.os }}.txt"
+            sha256sum $files > "SHA256SUMS-${{ matrix.os }}-${{ env.ARCH_TAG }}.txt"
           else
-            shasum -a 256 $files > "SHA256SUMS-${{ matrix.os }}.txt"
+            shasum -a 256 $files > "SHA256SUMS-${{ matrix.os }}-${{ env.ARCH_TAG }}.txt"
           fi
-          cat "SHA256SUMS-${{ matrix.os }}.txt"
+          cat "SHA256SUMS-${{ matrix.os }}-${{ env.ARCH_TAG }}.txt"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-dist
+          name: ${{ matrix.os }}-${{ env.ARCH_TAG }}-dist
           # zip + latest*.yml + blockmaps feed electron-updater (auto-update):
           # latest-mac.yml points Squirrel.Mac at the zip; nsis/AppImage use
           # latest.yml/latest-linux.yml + blockmaps for differential download.

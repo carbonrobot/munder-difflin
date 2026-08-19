@@ -10,6 +10,9 @@ import { join, resolve, sep, basename, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { request as httpsRequest } from 'node:https';
 import { PtyManager, type SpawnOptions } from './pty';
+import {
+  detectDistros, resolveWslTarget, clearWslCache, resolveWslCommand, wslAvailable
+} from './wsl';
 import { resolveCommand as resolveCliCommand } from './shellEnv';
 import { initAutoUpdater } from './updater';
 import { RealtimeFloorWatcher } from './realtimeFloorWatcher';
@@ -2794,6 +2797,68 @@ ipcMain.handle('pty:list', () => ptyManager.list());
 // the cwd from a transcript record; null when the id is invalid/unknown.
 ipcMain.handle('session:resolveCwd', (_evt, sessionId: unknown) =>
   (typeof sessionId === 'string' ? resolveSessionCwd(sessionId) : null));
+
+// ─── IPC: WSL terminal target ───────────────────────────────────────────────
+// Where agent terminals run. Windows-only in effect; every handler answers
+// harmlessly on macOS/Linux so the renderer needs no platform branch.
+
+/** Distros the user could pick, plus the live decision. `needsChoice` is what
+ *  drives the one-time first-run prompt: WSL is installed, the question has
+ *  never been put to the user, and we are therefore still running native. */
+ipcMain.handle('wsl:status', (_evt, force: unknown) => {
+  const distros = detectDistros(force === true);
+  const cfg = readConfig();
+  const decision = resolveWslTarget(cfg, process.platform, distros);
+  return {
+    platform: process.platform,
+    available: distros.length > 0,
+    distros,
+    target: cfg.terminalTarget ?? 'auto',
+    distro: cfg.wslDistro ?? null,
+    user: cfg.wslUser ?? null,
+    chosen: cfg.terminalTargetChosen === true,
+    decision
+  };
+});
+
+/** Persist the user's choice. Always stamps terminalTargetChosen so declining
+ *  WSL is remembered and the prompt never reappears. Clears the detection +
+ *  resolution caches, because distro/user changes invalidate both. */
+ipcMain.handle('wsl:setTarget', (_evt, patch: unknown) => {
+  const p = (patch ?? {}) as { target?: unknown; distro?: unknown; user?: unknown };
+  const target = p.target === 'wsl' || p.target === 'windows' || p.target === 'auto' ? p.target : null;
+  if (!target) return { ok: false, error: 'invalid target' };
+  if (target === 'wsl' && typeof p.distro !== 'string') {
+    return { ok: false, error: 'a distro is required to target WSL' };
+  }
+  const next = writeConfig({
+    terminalTarget: target,
+    terminalTargetChosen: true,
+    ...(typeof p.distro === 'string' ? { wslDistro: p.distro } : {}),
+    ...(typeof p.user === 'string' ? { wslUser: p.user } : {})
+  });
+  clearWslCache();
+  return { ok: true, target: next.terminalTarget, distro: next.wslDistro ?? null, user: next.wslUser ?? null };
+});
+
+/** Diagnostics for the Settings panel: does the distro actually have the tools?
+ *  Resolved against the CLEANED PATH, so a Windows build sitting on /mnt/c can
+ *  never masquerade as an installed Linux CLI. */
+ipcMain.handle('wsl:probe', (_evt, distro: unknown, user: unknown) => {
+  if (process.platform !== 'win32') return { ok: false, error: 'not a Windows host' };
+  const name = typeof distro === 'string' && distro ? distro : (readConfig().wslDistro ?? '');
+  if (!name) return { ok: false, error: 'no distro selected' };
+  const asUser = typeof user === 'string' && user ? user : (readConfig().wslUser ?? undefined);
+  const cfg = readConfig();
+  const tools: Record<string, string | null> = {};
+  for (const tool of [cfg.defaultCommand || 'claude', 'node', 'git']) {
+    tools[tool] = resolveWslCommand(name, tool, asUser);
+  }
+  return { ok: true, distro: name, user: asUser ?? null, tools };
+});
+
+/** Cheap boolean for gating UI without paying a full status call. */
+ipcMain.handle('wsl:available', () => wslAvailable());
 
 // ─── IPC: clipboard ─────────────────────────────────────────────────────────
 ipcMain.handle('app:copyToClipboard', (_evt, text: unknown) => {

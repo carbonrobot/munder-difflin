@@ -24,6 +24,23 @@ export type {
  *  write-only secret contract (spec §2): a secret value is NEVER returned over IPC. */
 export type IntegrationRecordView = Omit<IntegrationRecord, 'secretRef'> & { hasSecret: boolean };
 
+/** A WSL distro as reported by `wsl -l -v`, docker-desktop internals excluded. */
+export interface WslDistroView { name: string; state: string; version: number; isDefault: boolean }
+
+/** Everything the Settings panel and the first-run prompt need in one call.
+ *  `decision.needsChoice` is true only when WSL exists AND the user has never
+ *  answered - which is what makes the prompt fire exactly once. */
+export interface WslStatus {
+  platform: string;
+  available: boolean;
+  distros: WslDistroView[];
+  target: 'auto' | 'windows' | 'wsl';
+  distro: string | null;
+  user: string | null;
+  chosen: boolean;
+  decision: { mode: 'native' | 'wsl'; distro?: string; user?: string; needsChoice: boolean; reason: string };
+}
+
 // Injected at build time from package.json (see electron.vite.config.ts).
 declare const __APP_VERSION__: string;
 
@@ -648,6 +665,22 @@ const api = {
     ipcRenderer.invoke('config:update', patch),
   ensureHarnessHome: (path: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('config:ensureHome', path),
+
+  // ─── WSL terminal target ─────────────────────────────────────────────────
+  /** Where agent terminals run. Windows-only in effect; on macOS/Linux `status`
+   *  reports available:false and every agent keeps its native path. */
+  wsl: {
+    status: (force = false): Promise<WslStatus> =>
+      ipcRenderer.invoke('wsl:status', force),
+    setTarget: (patch: { target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string }):
+      Promise<{ ok: boolean; error?: string; target?: string; distro?: string | null; user?: string | null }> =>
+      ipcRenderer.invoke('wsl:setTarget', patch),
+    probe: (distro?: string, user?: string):
+      Promise<{ ok: boolean; error?: string; distro?: string; user?: string | null; tools?: Record<string, string | null> }> =>
+      ipcRenderer.invoke('wsl:probe', distro, user),
+    available: (): Promise<boolean> =>
+      ipcRenderer.invoke('wsl:available')
+  },
   /** Change the harness home folder. 'move' copies the existing hive + palace
    *  into the new folder (old kept as a safety net); 'fresh' just re-points and
    *  bootstraps an empty home. On success the app relaunches (never resolves);

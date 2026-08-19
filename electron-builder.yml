@@ -120,19 +120,19 @@ win:
   icon: build/icon.ico
   target:
     - target: nsis
-      arch: [x64]
+      arch: [x64, arm64]
     - target: portable
-      arch: [x64]
+      arch: [x64, arm64]
 
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  artifactName: Munder-Difflin-${version}-win-x64-setup.exe
+  artifactName: Munder-Difflin-${version}-win-${arch}-setup.exe
   shortcutName: Munder Difflin
 
 portable:
-  artifactName: Munder-Difflin-${version}-win-x64-portable.exe
+  artifactName: Munder-Difflin-${version}-win-${arch}-portable.exe
 
 # ---- Linux ----
 linux:
@@ -140,5 +140,5 @@ linux:
   icon: build/icon.png
   target:
     - target: AppImage
-      arch: [x64]
-  artifactName: Munder-Difflin-${version}-linux-x86_64.AppImage
+      arch: [x64, arm64]
+  artifactName: Munder-Difflin-${version}-linux-${arch}.AppImage

@@ -181,6 +181,20 @@ export interface HarnessConfig {
   recentHives?: string[];
   /** Folders the user registered during onboarding (used as quick-picks). */
   registeredRepos: string[];
+  /** Where agent terminals run. 'windows' = today's cmd.exe/shim path;
+   *  'wsl' = spawn through wsl.exe into a distro; 'auto' = not yet chosen, which
+   *  makes the first run ASK rather than silently move an existing user's agents
+   *  onto a different filesystem. Windows-only; ignored on macOS/Linux, where the
+   *  native path already is the unix path. */
+  terminalTarget?: 'auto' | 'windows' | 'wsl';
+  /** Distro name from `wsl -l -v` (e.g. 'Ubuntu'). Only read when
+   *  terminalTarget === 'wsl'. */
+  wslDistro?: string;
+  /** Linux user to run agents as. Unset = the distro's own default user. */
+  wslUser?: string;
+  /** Set once the user has answered the first-run target prompt, so declining
+   *  WSL is remembered and we never ask twice. */
+  terminalTargetChosen?: boolean;
   /** When true, new agents are spawned with --permission-mode bypassPermissions. */
   autoMode: boolean;
   /** The command we run when spawning a new agent. */
@@ -405,6 +419,8 @@ const DEFAULTS: HarnessConfig = {
   harnessHome: null,
   recentHives: [],
   registeredRepos: [],
+  terminalTarget: 'auto',
+  terminalTargetChosen: false,
   autoMode: true,
   defaultCommand: 'claude',
   godProvider: 'claude',

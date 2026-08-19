@@ -61,6 +61,12 @@ export interface HarnessConfig {
    *  Mirrors src/main/config.ts. */
   recentHives?: string[];
   registeredRepos: string[];
+  /** Where agent terminals run (mirrors src/main/config.ts). Windows-only in
+   *  effect; 'auto' means the first-run prompt has not been answered yet. */
+  terminalTarget?: 'auto' | 'windows' | 'wsl';
+  wslDistro?: string;
+  wslUser?: string;
+  terminalTargetChosen?: boolean;
   autoMode: boolean;
   defaultCommand: string;
   /** Default model for newly spawned agents (e.g. 'claude-sonnet-4-6[1m]'); unset = CLI default. */
@@ -391,4 +397,33 @@ export function buildSpawnCommand(
   // auto, or agy's skip flag.
   if (config.autoMode && preset.autoFlag) cmd = `${cmd} ${preset.autoFlag}`;
   return cmd;
+}
+
+
+/** A WSL distro as reported by `wsl -l -v` (mirrors src/preload/index.ts). */
+export interface WslDistroView {
+  name: string;
+  state: string;
+  version: number;
+  isDefault: boolean;
+}
+
+/** Everything the WSL settings panel and the first-run prompt need in one call.
+ *  `decision.needsChoice` is true only when WSL is installed AND the user has
+ *  never answered, which is what makes the prompt fire exactly once. */
+export interface WslStatus {
+  platform: string;
+  available: boolean;
+  distros: WslDistroView[];
+  target: 'auto' | 'windows' | 'wsl';
+  distro: string | null;
+  user: string | null;
+  chosen: boolean;
+  decision: {
+    mode: 'native' | 'wsl';
+    distro?: string;
+    user?: string;
+    needsChoice: boolean;
+    reason: string;
+  };
 }
