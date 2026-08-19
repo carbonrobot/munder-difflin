@@ -36,7 +36,7 @@ const rowStyle: CSSProperties = {
   background: 'var(--cth-paper-100)', boxShadow: 'inset 0 0 0 1px var(--cth-ink-300)', cursor: 'pointer'
 };
 
-export function WslFirstRunPrompt({ onResolved }: { onResolved?: () => void } = {}) {
+export function WslFirstRunPrompt() {
   const [status, setStatus] = useState<WslStatus | null>(null);
   const [choice, setChoice] = useState<'wsl' | 'windows'>('wsl');
   const [distro, setDistro] = useState('');
@@ -63,11 +63,9 @@ export function WslFirstRunPrompt({ onResolved }: { onResolved?: () => void } = 
         choice === 'wsl' ? { target: 'wsl', distro } : { target: 'windows' }
       );
       setDismissed(true);
-      onResolved?.();
     } catch {
       // Even on failure, stop blocking the app — Settings has the same control.
       setDismissed(true);
-      onResolved?.();
     } finally { setBusy(false); }
   };
 
@@ -76,16 +74,16 @@ export function WslFirstRunPrompt({ onResolved }: { onResolved?: () => void } = 
       <div style={panel}>
         <div style={titleStyle}>Where should agents run?</div>
         <div style={bodyStyle}>
-          We found WSL2 on this machine{distro ? <> (<strong>{distro}</strong>)</> : null}. If your
-          agent CLI is installed there, run agents in WSL2 — <code>git</code> and{' '}
-          <code>node</code> will resolve to their Linux builds too.
+          We found WSL2 on this machine{distro ? <> (<strong>{distro}</strong>)</> : null}. Most
+          developers install Claude Code inside WSL2 — running agents there also means{' '}
+          <code>git</code> and <code>node</code> resolve to their Linux builds.
         </div>
 
         <label style={rowStyle} onClick={() => setChoice('wsl')}>
           <input type="radio" checked={choice === 'wsl'} onChange={() => setChoice('wsl')} />
           <span>
             <strong>WSL2{distro ? ` — ${distro}` : ''}</strong>
-            <div style={{ ...bodyStyle, fontSize: 11 }}>Recommended if your agent CLI is installed in WSL.</div>
+            <div style={{ ...bodyStyle, fontSize: 11 }}>Recommended if you use Claude Code from WSL.</div>
           </span>
         </label>
 

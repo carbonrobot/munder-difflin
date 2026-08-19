@@ -170,23 +170,11 @@ export function App() {
     setClosing(null);
   };
 
-  // The GOD session spawns as soon as the hive bootstrap runs, so it must not run
-  // while the terminal-target question is still unanswered: Michael would start on
-  // Windows and keep that PTY even after the user picks WSL. null = not yet known;
-  // a status failure resolves to false so a broken probe can never wedge the boot.
-  const [targetPending, setTargetPending] = useState<boolean | null>(null);
-  useEffect(() => {
-    void (async () => {
-      try { setTargetPending((await window.cth.wsl.status()).decision.needsChoice); }
-      catch { setTargetPending(false); }
-    })();
-  }, []);
-
   // The hive: god-agent bootstrap, hook-driven avatars, idle-agent waking. Held
   // off until the user opens a hive in the launch picker (passing null no-ops the
   // hook) so Michael doesn't boot against the current home while the user may be
   // about to switch to a different one.
-  useHive(hiveOpened && targetPending === false ? config : null);
+  useHive(hiveOpened ? config : null);
 
   // Pre-warm a persistent terminal for every live agent so its output is
   // buffered from spawn. Switching agents then re-attaches an already-rendered
@@ -463,7 +451,7 @@ export function App() {
 
       {/* Self-gating: null unless main reports needsChoice (Windows + a usable
           distro + never answered), so this fires exactly once. */}
-      <WslFirstRunPrompt onResolved={() => setTargetPending(false)} />
+      <WslFirstRunPrompt />
 
       {settingsOpen && (
         <SettingsModal
