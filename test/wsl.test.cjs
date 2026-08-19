@@ -320,3 +320,20 @@ test('every decision carries a reason, so a fallback is never silent', () => {
     assert.ok(d.reason && d.reason.length > 0, 'reason must be set for ' + JSON.stringify(cfg));
   }
 });
+
+test('buildWslSpawn translates a whole-path argv element (the --settings case)', () => {
+  const { args } = buildWslSpawn({
+    distro: 'Ubuntu', command: '/usr/bin/claude',
+    args: ['--settings', 'C:\\Users\\carbo\\.munder_3\\hive\\agents\\god\\settings.json']
+  });
+  assert.equal(args[args.length - 1], '/mnt/c/Users/carbo/.munder_3/hive/agents/god/settings.json');
+  assert.equal(args[args.length - 2], '--settings', 'the flag itself must be untouched');
+});
+
+test('buildWslSpawn does NOT rewrite a path buried inside a prompt', () => {
+  const prompt = 'HIVE PROTOCOL\nYour outbox is at C:\\Users\\me\\outbox - write JSON there.';
+  const { args } = buildWslSpawn({
+    distro: 'Ubuntu', command: '/usr/bin/claude', args: ['--append-system-prompt', prompt]
+  });
+  assert.equal(args[args.length - 1], prompt, 'free text must never be rewritten');
+});

@@ -138,6 +138,26 @@ export function toWslPath(p: string, mountRoot = '/mnt'): string {
 }
 
 /**
+ * PURE. Translate argv elements that are WHOLE absolute Windows paths into the
+ * distro's namespace.
+ *
+ * The hive hands the CLI real paths on argv - `--settings
+ * C:\\Users\\me\\.munder\\hive\\agents\\god\\settings.json` is the one that bites first.
+ * MAIN is a Windows process, so it writes that file to a Windows path and the
+ * file genuinely EXISTS; a CLI running inside the distro simply cannot resolve a
+ * drive letter, and reports it missing. The same file is readable at /mnt/c/...
+ *
+ * Deliberately conservative: only an element that IS an absolute Windows path
+ * end-to-end is rewritten. A prompt that merely CONTAINS such a path (the
+ * injected hive protocol does) is left alone - rewriting inside free text would
+ * corrupt the prompt, and prompt corruption is the exact bug this target exists
+ * to fix.
+ */
+export function translatePathArgs(args: string[], mountRoot = '/mnt'): string[] {
+  return args.map((a) => (/^[A-Za-z]:[\\/]/.test(a) ? toWslPath(a, mountRoot) : a));
+}
+
+/**
  * PURE. Build the wsl.exe invocation.
  *
  * `-e` and not `--` deliberately: `--` hands the remainder to a shell, which
@@ -167,7 +187,7 @@ export function buildWslSpawn(opts: WslSpawnOptions): { file: string; args: stri
   }
   if (envPairs.length) args.push('/usr/bin/env', ...envPairs);
 
-  args.push(opts.command, ...(opts.args ?? []));
+  args.push(opts.command, ...translatePathArgs(opts.args ?? []));
   return { file: WSL_EXE, args };
 }
 
