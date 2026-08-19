@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { PixelPanel } from './PixelPanel';
+import { WslTargetStep, type TerminalChoice } from './WslTargetStep';
 import { PixelButton } from './PixelButton';
 import { Icon, type IconName } from './Icon';
 import { SpritePortrait } from './SpritePortrait';
 import { ProviderLogo } from './ProviderLogo';
-import { AGENT_PROVIDER_PRESETS, modelsForProvider, type AgentProvider, type HarnessConfig } from '@/store/config';
+import { AGENT_PROVIDER_PRESETS, modelsForProvider, type AgentProvider, type HarnessConfig, type WslDistroView } from '@/store/config';
 import { canReceiveInbox, providerPreset } from '@shared/agentProvider';
 
 export interface OnboardingWizardProps {
@@ -12,7 +13,7 @@ export interface OnboardingWizardProps {
 }
 
 type Audience = 'technical' | 'non-technical';
-type Step = 'persona' | 'welcome' | 'home' | 'orchestrator' | 'repos' | 'permissions' | 'done';
+type Step = 'persona' | 'welcome' | 'home' | 'terminal' | 'orchestrator' | 'repos' | 'permissions' | 'done';
 
 // First-run showcase — the highest-value features a brand-new user should grasp
 // before any setup. Each carries a developer-register `desc` and a plain-language
@@ -81,6 +82,31 @@ const PROVIDER_BLURB: Partial<Record<AgentProvider, string>> = {
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [step, setStep] = useState<Step>('persona');
+
+  // WHERE AGENTS RUN. Asked here, not in a launch-time modal: the GOD session
+  // spawns the moment the hive bootstraps (which is the moment onboarding
+  // finishes), so a modal would either arrive after Michael already took a
+  // Windows PTY or have to hold the entire boot back. Windows-only — elsewhere
+  // the native path already IS the unix path, so the step is skipped entirely.
+  /** "STEP n OF m" — m is 5 on a Windows host with WSL, 4 everywhere else. */
+  const stepLabel = (n: number) => `STEP ${n} OF ${showTerminalStep ? 5 : 4}`;
+  const [wslDistros, setWslDistros] = useState<WslDistroView[]>([]);
+  const [showTerminalStep, setShowTerminalStep] = useState(false);
+  const [termChoice, setTermChoice] = useState<TerminalChoice>({ target: 'wsl' });
+  useEffect(() => {
+    void (async () => {
+      try {
+        const st = await window.cth.wsl.status();
+        if (st.platform !== 'win32' || !st.available) return;
+        setWslDistros(st.distros);
+        setShowTerminalStep(true);
+        setTermChoice({
+          target: 'wsl',
+          distro: st.distro ?? st.distros.find((d) => d.isDefault)?.name ?? st.distros[0]?.name
+        });
+      } catch { /* no WSL / not Windows — the step stays hidden */ }
+    })();
+  }, []);
   // Self-identified audience (item 1). Undefined until chosen on the first screen;
   // the rest of the wizard reads `plain` to swap copy registers.
   const [audience, setAudience] = useState<Audience | undefined>();
@@ -208,10 +234,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           title={
             step === 'persona' ? 'WELCOME TO MUNDER DIFFLIN'
             : step === 'welcome' ? 'MEET YOUR OFFICE'
-            : step === 'home' ? (plain ? 'STEP 1 OF 4 · A HOME FOR THE APP' : 'STEP 1 OF 4 · HARNESS HOME')
-            : step === 'orchestrator' ? (plain ? "STEP 2 OF 4 · YOUR CLONE" : "STEP 2 OF 4 · YOUR CLONE'S ENGINE")
-            : step === 'repos' ? (plain ? 'STEP 3 OF 4 · YOUR PROJECTS' : 'STEP 3 OF 4 · YOUR REPOS')
-            : step === 'permissions' ? 'STEP 4 OF 4 · PERMISSIONS & RELIABILITY'
+            : step === 'home' ? `${stepLabel(1)} · ${plain ? 'A HOME FOR THE APP' : 'HARNESS HOME'}`
+            : step === 'terminal' ? `${stepLabel(2)} · ${plain ? 'WHERE AGENTS RUN' : 'TERMINAL TARGET'}`
+            : step === 'orchestrator' ? `${stepLabel(showTerminalStep ? 3 : 2)} · ${plain ? 'YOUR CLONE' : "YOUR CLONE'S ENGINE"}`
+            : step === 'repos' ? `${stepLabel(showTerminalStep ? 4 : 3)} · ${plain ? 'YOUR PROJECTS' : 'YOUR REPOS'}`
+            : step === 'permissions' ? `${stepLabel(showTerminalStep ? 5 : 4)} · PERMISSIONS & RELIABILITY`
             : 'ALL SET'
           }
           noPadding
@@ -361,6 +388,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     : 'Think of this as the "town hall." The harness pins agent state there so sessions can be picked back up after a restart.'}
                 </div>
               </>
+            )}
+
+            {step === 'terminal' && (
+              <WslTargetStep
+                distros={wslDistros}
+                value={termChoice}
+                onChange={setTermChoice}
+                plain={plain}
+              />
             )}
 
             {step === 'orchestrator' && (
@@ -676,7 +712,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               <Dots step={step} />
               <div style={{ display: 'flex', gap: 8 }}>
                 {step !== 'persona' && step !== 'welcome' && (
-                  <PixelButton variant="ghost" size="md" onClick={() => setStep(prevStep(step))} disabled={busy}>
+                  <PixelButton variant="ghost" size="md" onClick={() => setStep(prevStep(step, showTerminalStep))} disabled={busy}>
                     back
                   </PixelButton>
                 )}
@@ -689,7 +725,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <PixelButton
                     variant="primary"
                     size="md"
-                    onClick={() => {
+                    onClick={async () => {
                       // Validate the home step HERE. Without this the only check
                       // lives in finish(), so an empty field walks you through all
                       // four steps and then bounces you back to step 1 to be told.
@@ -698,7 +734,19 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                         return;
                       }
                       setError(undefined);
-                      setStep(nextStep(step));
+                      // Persist the terminal target BEFORE advancing: onboarding
+                      // finishing is what triggers the hive bootstrap, and the
+                      // GOD spawn reads this from config.
+                      if (step === 'terminal') {
+                        try {
+                          await window.cth.wsl.setTarget(
+                            termChoice.target === 'wsl'
+                              ? { target: 'wsl', distro: termChoice.distro }
+                              : { target: 'windows' }
+                          );
+                        } catch { /* Settings carries the same control */ }
+                      }
+                      setStep(nextStep(step, showTerminalStep));
                     }}
                     disabled={step === 'persona' && !audience}
                   >
@@ -808,18 +856,22 @@ function Dots({ step }: { step: Step }) {
   );
 }
 
-function nextStep(s: Step): Step {
+/** `hasTerminal` false skips the terminal step in BOTH directions, so a
+ *  non-Windows host never lands on a step it cannot render. */
+function nextStep(s: Step, hasTerminal = false): Step {
   return s === 'persona' ? 'welcome'
     : s === 'welcome' ? 'home'
-    : s === 'home' ? 'orchestrator'
+    : s === 'home' ? (hasTerminal ? 'terminal' : 'orchestrator')
+    : s === 'terminal' ? 'orchestrator'
     : s === 'orchestrator' ? 'repos'
     : s === 'repos' ? 'permissions'
     : 'done';
 }
-function prevStep(s: Step): Step {
+function prevStep(s: Step, hasTerminal = false): Step {
   return s === 'permissions' ? 'repos'
     : s === 'repos' ? 'orchestrator'
-    : s === 'orchestrator' ? 'home'
+    : s === 'orchestrator' ? (hasTerminal ? 'terminal' : 'home')
+    : s === 'terminal' ? 'home'
     : s === 'home' ? 'welcome'
     : s === 'welcome' ? 'persona'
     : 'persona';
