@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { request as httpsRequest } from 'node:https';
 import { PtyManager, type SpawnOptions } from './pty';
 import {
-  detectDistros, resolveWslTarget, clearWslCache, resolveWslCommand, wslAvailable
+  detectDistros, resolveWslTarget, clearWslCache, resolveWslCommand, wslAvailable, probeWslUid
 } from './wsl';
 import { resolveCommand as resolveCliCommand } from './shellEnv';
 import { initAutoUpdater } from './updater';
@@ -2809,14 +2809,21 @@ ipcMain.handle('wsl:status', (_evt, force: unknown) => {
   const distros = detectDistros(force === true);
   const cfg = readConfig();
   const decision = resolveWslTarget(cfg, process.platform, distros);
+  // uid of the distro we would actually use, so the UI can warn BEFORE a spawn
+  // dies. Only probed when a target exists; null = unknown, never assumed safe.
+  const probeTarget = decision.mode === 'wsl' ? decision.distro : (cfg.wslDistro ?? null);
+  const uid = probeTarget ? probeWslUid(probeTarget, cfg.wslUser) : null;
   return {
     platform: process.platform,
     available: distros.length > 0,
+    uid,
+    isRoot: uid === 0,
     distros,
     target: cfg.terminalTarget ?? 'auto',
     distro: cfg.wslDistro ?? null,
     user: cfg.wslUser ?? null,
     chosen: cfg.terminalTargetChosen === true,
+    treatAsSandbox: cfg.wslTreatAsSandbox === true,
     decision
   };
 });
@@ -2834,6 +2841,9 @@ ipcMain.handle('wsl:setTarget', (_evt, patch: unknown) => {
   const next = writeConfig({
     terminalTarget: target,
     terminalTargetChosen: true,
+    ...(typeof (p as { treatAsSandbox?: unknown }).treatAsSandbox === 'boolean'
+      ? { wslTreatAsSandbox: (p as { treatAsSandbox: boolean }).treatAsSandbox }
+      : {}),
     ...(typeof p.distro === 'string' ? { wslDistro: p.distro } : {}),
     ...(typeof p.user === 'string' ? { wslUser: p.user } : {})
   });

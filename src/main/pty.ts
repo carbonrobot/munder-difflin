@@ -8,7 +8,8 @@ import { expandTilde } from './fs';
 import { captureFromLoginShell, userShellPath } from './shellEnv';
 import { readConfig } from './config';
 import {
-  resolveWslTarget, detectDistros, resolveWslCommand, captureWslPath, buildWslSpawn, toWslPath
+  resolveWslTarget, detectDistros, resolveWslCommand, captureWslPath, buildWslSpawn, toWslPath,
+  probeWslUid, rootHostileFlag
 } from './wsl';
 
 /** APPEND the hive's bundled-node dir (`<HIVE_ROOT>/bin/runtime`, which holds a
@@ -610,9 +611,31 @@ export class PtyManager {
                 + `Install it in the distro, or switch the terminal target to Windows in Settings.`
             };
           }
+          // ROOT. A WSL distro is very often left with root as its default user,
+          // and the CLI refuses its auto-mode flag under uid 0 — it exits 1 with a
+          // one-line complaint, which reaches the user as an agent that died
+          // instantly for no visible reason. Say what happened and what to do.
+          // ROOT. A WSL distro is very often left with root as its default user,
+          // and the CLI refuses its auto-mode flag under uid 0 unless IS_SANDBOX=1
+          // marks the environment as a deliberate sandbox. That escape hatch is
+          // the CLI's own; we only pass it when the user has opted in, because it
+          // relaxes a real safety check.
+          const sandboxOptIn = readConfig().wslTreatAsSandbox === true;
+          const hostile = rootHostileFlag(opts.args ?? []);
+          if (hostile && !sandboxOptIn && probeWslUid(distro, wslTarget.user) === 0) {
+            return {
+              ok: false,
+              error: `WSL (${distro}) runs as root, and ${hostile} is refused under root. `
+                + `Either tick "Treat WSL as a sandbox" in Settings (exports IS_SANDBOX=1), `
+                + `run as a non-root WSL user, or turn off Auto mode.`
+            };
+          }
           const built = buildWslSpawn({
             distro, user: wslTarget.user, cwd: opts.cwd,
-            command: inDistro, args: opts.args, env: opts.env, path: userPath
+            command: inDistro,
+            args: opts.args,
+            env: sandboxOptIn ? { ...(opts.env ?? {}), IS_SANDBOX: '1' } : opts.env,
+            path: userPath
           });
           file = built.file; spawnArgs = built.args;
         }

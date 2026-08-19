@@ -67,6 +67,7 @@ export interface HarnessConfig {
   wslDistro?: string;
   wslUser?: string;
   terminalTargetChosen?: boolean;
+  wslTreatAsSandbox?: boolean;
   autoMode: boolean;
   defaultCommand: string;
   /** Default model for newly spawned agents (e.g. 'claude-sonnet-4-6[1m]'); unset = CLI default. */
@@ -414,11 +415,18 @@ export interface WslDistroView {
 export interface WslStatus {
   platform: string;
   available: boolean;
+  /** Effective uid inside the selected distro; null when unknown. */
+  uid: number | null;
+  /** uid === 0. WSL defaults to root on a stock install, and the CLI refuses
+   *  its auto-mode flag there. */
+  isRoot: boolean;
   distros: WslDistroView[];
   target: 'auto' | 'windows' | 'wsl';
   distro: string | null;
   user: string | null;
   chosen: boolean;
+  /** IS_SANDBOX=1 opt-in, letting Auto mode run under a root WSL user. */
+  treatAsSandbox: boolean;
   decision: {
     mode: 'native' | 'wsl';
     distro?: string;

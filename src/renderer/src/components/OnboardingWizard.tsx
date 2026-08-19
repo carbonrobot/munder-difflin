@@ -92,6 +92,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const stepLabel = (n: number) => `STEP ${n} OF ${showTerminalStep ? 5 : 4}`;
   const [wslDistros, setWslDistros] = useState<WslDistroView[]>([]);
   const [showTerminalStep, setShowTerminalStep] = useState(false);
+  const [wslIsRoot, setWslIsRoot] = useState(false);
   const [termChoice, setTermChoice] = useState<TerminalChoice>({ target: 'wsl' });
   useEffect(() => {
     void (async () => {
@@ -100,6 +101,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         if (st.platform !== 'win32' || !st.available) return;
         setWslDistros(st.distros);
         setShowTerminalStep(true);
+        setWslIsRoot(st.isRoot === true);
         setTermChoice({
           target: 'wsl',
           distro: st.distro ?? st.distros.find((d) => d.isDefault)?.name ?? st.distros[0]?.name
@@ -396,6 +398,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 value={termChoice}
                 onChange={setTermChoice}
                 plain={plain}
+                isRoot={wslIsRoot}
               />
             )}
 
@@ -709,7 +712,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
             {/* Footer / nav */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-              <Dots step={step} />
+              <Dots step={step} hasTerminal={showTerminalStep} />
               <div style={{ display: 'flex', gap: 8 }}>
                 {step !== 'persona' && step !== 'welcome' && (
                   <PixelButton variant="ghost" size="md" onClick={() => setStep(prevStep(step, showTerminalStep))} disabled={busy}>
@@ -841,8 +844,12 @@ function ToggleRow({ icon, label, desc, on, tint, edge, onChange }: {
   );
 }
 
-function Dots({ step }: { step: Step }) {
-  const order: Step[] = ['persona', 'welcome', 'home', 'orchestrator', 'repos', 'permissions'];
+function Dots({ step, hasTerminal = false }: { step: Step; hasTerminal?: boolean }) {
+  // Must mirror nextStep()/prevStep(): a step missing here renders a row with
+  // nothing highlighted, because no dot matches the current step.
+  const order: Step[] = hasTerminal
+    ? ['persona', 'welcome', 'home', 'terminal', 'orchestrator', 'repos', 'permissions']
+    : ['persona', 'welcome', 'home', 'orchestrator', 'repos', 'permissions'];
   return (
     <div style={{ display: 'flex', gap: 4 }}>
       {order.map((s) => (

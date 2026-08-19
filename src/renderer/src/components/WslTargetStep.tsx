@@ -28,12 +28,14 @@ const rowStyle: CSSProperties = {
 const subStyle: CSSProperties = { fontSize: 12, color: 'var(--cth-ink-500)', lineHeight: '17px' };
 
 export function WslTargetStep({
-  distros, value, onChange, plain
+  distros, value, onChange, plain, isRoot
 }: {
   distros: WslDistroView[];
   value: TerminalChoice;
   onChange: (next: TerminalChoice) => void;
   plain?: boolean;
+  /** The distro's default user is root — Auto mode's flag is refused there. */
+  isRoot?: boolean;
 }) {
   const distro = value.distro ?? distros.find((d) => d.isDefault)?.name ?? distros[0]?.name ?? '';
 
@@ -97,6 +99,18 @@ export function WslTargetStep({
           </div>
         </span>
       </label>
+
+      {isRoot && value.target === 'wsl' && (
+        <div style={{
+          ...subStyle, color: 'var(--cth-ink-900)', padding: 8,
+          background: 'var(--cth-paper-100)', boxShadow: 'inset 0 0 0 1px var(--cth-ink-900)'
+        }}>
+          <strong>Heads up:</strong> this distro runs as <code>root</code>. Auto mode passes
+          a flag the CLI refuses under root, so agents will not start. Create a normal user
+          (<code>sudo adduser yourname</code>) and set it in Settings, or turn Auto mode off
+          on the Permissions step.
+        </div>
+      )}
 
       <div style={subStyle}>You can change this later in Settings.</div>
     </>

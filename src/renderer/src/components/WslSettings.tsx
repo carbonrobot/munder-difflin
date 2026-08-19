@@ -50,7 +50,9 @@ export function WslSettings() {
   const target = status.target;
   const distro = status.distro ?? status.distros.find((d) => d.isDefault)?.name ?? status.distros[0]?.name ?? '';
 
-  const save = async (patch: { target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string }) => {
+  const save = async (patch: {
+    target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string; treatAsSandbox?: boolean;
+  }) => {
     setBusy(true); setNote(''); setTools(null);
     try {
       const res = await window.cth.wsl.setTarget(patch);
@@ -120,6 +122,54 @@ export function WslSettings() {
             ))}
           </select>
         </label>
+      )}
+
+      {status.available && (
+        <label style={labelStyle}>
+          Run as user <span style={{ textTransform: 'none' }}>(blank = the distro&apos;s default)</span>
+          <input
+            style={{ ...selectStyle, marginTop: 4 }}
+            defaultValue={status.user ?? ''}
+            placeholder="e.g. carbo"
+            disabled={busy || target !== 'wsl'}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v !== (status.user ?? '')) void save({ target: 'wsl', distro, user: v });
+            }}
+          />
+        </label>
+      )}
+
+      {/* WSL is very often left running as root, and the CLI refuses its
+          auto-mode flag under uid 0 — surfacing that here beats an agent that
+          dies on spawn with a one-line complaint. */}
+      {status.isRoot && (
+        <div style={{
+          ...noteStyle, color: 'var(--cth-ink-900)', padding: 8,
+          background: 'var(--cth-paper-100)', boxShadow: 'inset 0 0 0 1px var(--cth-ink-900)'
+        }}>
+          <strong>This distro runs as root.</strong> Agents using Auto mode will refuse to
+          start (<code>--dangerously-skip-permissions</code> is rejected under root). Create a
+          normal user in the distro and set it above:
+          <div style={{ marginTop: 4 }}><code>sudo adduser yourname</code></div>
+          Or treat the distro as a sandbox:
+          <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6 }}>
+            <input
+              type="checkbox"
+              checked={status.treatAsSandbox}
+              disabled={busy}
+              onChange={(e) => void save({ target: 'wsl', distro, treatAsSandbox: e.target.checked })}
+            />
+            <span>
+              Treat WSL as a sandbox (<code>IS_SANDBOX=1</code>)
+              <div style={{ ...noteStyle, marginTop: 2 }}>
+                Uses the CLI&apos;s own escape hatch for root inside a deliberate sandbox.
+                It relaxes a real safety check — the agent runs with permission prompts
+                skipped, as root, with your Windows drives mounted at <code>/mnt</code>.
+              </div>
+            </span>
+          </label>
+        </div>
       )}
 
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

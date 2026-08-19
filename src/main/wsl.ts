@@ -248,6 +248,28 @@ export function buildWslWhich(
   return { file: WSL_EXE, args };
 }
 
+/** Flags a CLI refuses to run under uid 0. Claude Code rejects
+ *  --dangerously-skip-permissions as root ("cannot be used with root/sudo
+ *  privileges for security reasons") and exits 1, which surfaces as an agent
+ *  that dies instantly with no useful message. */
+export const ROOT_HOSTILE_FLAGS = [
+  '--dangerously-skip-permissions',
+  '--dangerously-bypass-approvals-and-sandbox'
+];
+
+/** PURE. Does this argv carry a flag the CLI will refuse to run as root? */
+export function rootHostileFlag(args: string[]): string | null {
+  return args.find((a) => ROOT_HOSTILE_FLAGS.includes(a)) ?? null;
+}
+
+/** PURE. argv that reports the effective uid + name inside the distro. */
+export function buildWslIdProbe(distro: string, user?: string): { file: string; args: string[] } {
+  const args = ['-d', distro];
+  if (user) args.push('-u', user);
+  args.push('-e', 'id', '-u');
+  return { file: WSL_EXE, args };
+}
+
 /**
  * PURE. Pick the distro a first run should preselect: the `*` default when it is
  * selectable, else the first selectable one, else null.
@@ -386,6 +408,7 @@ export function clearWslCache(): void {
   distroCache = null;
   pathCache.clear();
   whichCache.clear();
+  uidCache.clear();
 }
 
 const pathCache = new Map<string, string>();
@@ -435,4 +458,22 @@ export function resolveWslCommand(distro: string, command: string, user?: string
   const resolved = line.startsWith('/') ? line : null;
   whichCache.set(key, resolved);
   return resolved;
+}
+
+const uidCache = new Map<string, number | null>();
+
+/**
+ * Effective uid inside the distro. 0 means the distro's default user is root,
+ * which WSL installs are frequently left as. Cached per distro+user; null when
+ * the probe fails (treated as "unknown", never as "not root").
+ */
+export function probeWslUid(distro: string, user?: string): number | null {
+  const key = `${distro} ${user ?? ''}`;
+  const hit = uidCache.get(key);
+  if (hit !== undefined) return hit;
+  const res = runWsl(buildWslIdProbe(distro, user).args, 15_000);
+  const n = res.ok ? Number.parseInt(res.stdout.trim(), 10) : Number.NaN;
+  const uid = Number.isFinite(n) ? n : null;
+  uidCache.set(key, uid);
+  return uid;
 }

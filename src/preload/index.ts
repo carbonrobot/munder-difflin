@@ -33,11 +33,18 @@ export interface WslDistroView { name: string; state: string; version: number; i
 export interface WslStatus {
   platform: string;
   available: boolean;
+  /** Effective uid inside the selected distro; null when unknown. */
+  uid: number | null;
+  /** uid === 0. WSL defaults to root on a stock install, and the CLI refuses
+   *  its auto-mode flag there. */
+  isRoot: boolean;
   distros: WslDistroView[];
   target: 'auto' | 'windows' | 'wsl';
   distro: string | null;
   user: string | null;
   chosen: boolean;
+  /** IS_SANDBOX=1 opt-in, letting Auto mode run under a root WSL user. */
+  treatAsSandbox: boolean;
   decision: { mode: 'native' | 'wsl'; distro?: string; user?: string; needsChoice: boolean; reason: string };
 }
 
@@ -672,7 +679,7 @@ const api = {
   wsl: {
     status: (force = false): Promise<WslStatus> =>
       ipcRenderer.invoke('wsl:status', force),
-    setTarget: (patch: { target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string }):
+    setTarget: (patch: { target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string; treatAsSandbox?: boolean }):
       Promise<{ ok: boolean; error?: string; target?: string; distro?: string | null; user?: string | null }> =>
       ipcRenderer.invoke('wsl:setTarget', patch),
     probe: (distro?: string, user?: string):
