@@ -251,36 +251,30 @@ test('resolveWslTarget never engages WSL off Windows', () => {
   for (const platform of ['darwin', 'linux']) {
     const d = resolveWslTarget({ terminalTarget: 'wsl', wslDistro: 'Ubuntu' }, platform, [UBUNTU]);
     assert.equal(d.mode, 'native', platform + ' must keep its own native path');
-    assert.equal(d.needsChoice, false);
   }
 });
 
-test('resolveWslTarget: an unset target runs native but ASKS when WSL exists', () => {
+test('resolveWslTarget never engages WSL without an explicit choice', () => {
   const d = resolveWslTarget({}, 'win32', [UBUNTU]);
-  assert.equal(d.mode, 'native', 'never silently move an existing user to another filesystem');
-  assert.equal(d.needsChoice, true);
+  assert.equal(d.mode, 'native', 'an unset target must not move agents to another filesystem');
+  assert.match(d.reason, /no target chosen yet/);
 });
 
-test('resolveWslTarget does not ask when the only distros are docker internals', () => {
+test('resolveWslTarget reports no distro when only docker internals exist', () => {
   const d = resolveWslTarget({}, 'win32', [DOCKER]);
-  assert.equal(d.needsChoice, false);
   assert.equal(d.mode, 'native');
-});
-
-test('resolveWslTarget does not ask twice once the user has answered', () => {
-  const d = resolveWslTarget({ terminalTarget: 'auto', terminalTargetChosen: true }, 'win32', [UBUNTU]);
-  assert.equal(d.needsChoice, false);
+  assert.match(d.reason, /no WSL distro available/);
 });
 
 test('resolveWslTarget honours an explicit windows choice', () => {
-  const d = resolveWslTarget({ terminalTarget: 'windows', terminalTargetChosen: true }, 'win32', [UBUNTU]);
+  const d = resolveWslTarget({ terminalTarget: 'windows' }, 'win32', [UBUNTU]);
   assert.equal(d.mode, 'native');
-  assert.equal(d.needsChoice, false);
+  assert.match(d.reason, /Windows selected/);
 });
 
 test('resolveWslTarget engages WSL with the named distro', () => {
   const d = resolveWslTarget(
-    { terminalTarget: 'wsl', wslDistro: 'Ubuntu', wslUser: 'carbo', terminalTargetChosen: true },
+    { terminalTarget: 'wsl', wslDistro: 'Ubuntu', wslUser: 'carbo' },
     'win32', [UBUNTU]
   );
   assert.equal(d.mode, 'wsl');
@@ -290,20 +284,20 @@ test('resolveWslTarget engages WSL with the named distro', () => {
 
 test('resolveWslTarget falls back LOUDLY when the saved distro is gone', () => {
   const d = resolveWslTarget(
-    { terminalTarget: 'wsl', wslDistro: 'Debian', terminalTargetChosen: true }, 'win32', [UBUNTU]
+    { terminalTarget: 'wsl', wslDistro: 'Debian' }, 'win32', [UBUNTU]
   );
   assert.equal(d.mode, 'native', 'must not spawn into a distro the user did not pick');
   assert.match(d.reason, /no longer installed/);
 });
 
 test('resolveWslTarget falls back when WSL is selected but absent entirely', () => {
-  const d = resolveWslTarget({ terminalTarget: 'wsl', terminalTargetChosen: true }, 'win32', []);
+  const d = resolveWslTarget({ terminalTarget: 'wsl' }, 'win32', []);
   assert.equal(d.mode, 'native');
   assert.match(d.reason, /no usable v2 distro/);
 });
 
 test('resolveWslTarget picks the default distro when none was named', () => {
-  const d = resolveWslTarget({ terminalTarget: 'wsl', terminalTargetChosen: true }, 'win32', [UBUNTU, DOCKER]);
+  const d = resolveWslTarget({ terminalTarget: 'wsl' }, 'win32', [UBUNTU, DOCKER]);
   assert.equal(d.mode, 'wsl');
   assert.equal(d.distro, 'Ubuntu');
 });

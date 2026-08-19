@@ -153,7 +153,7 @@ export function toWslPath(p: string, mountRoot = '/mnt'): string {
  * corrupt the prompt, and prompt corruption is the exact bug this target exists
  * to fix.
  */
-export function translatePathArgs(args: string[], mountRoot = '/mnt'): string[] {
+function translatePathArgs(args: string[], mountRoot = '/mnt'): string[] {
   return args.map((a) => (/^[A-Za-z]:[\\/]/.test(a) ? toWslPath(a, mountRoot) : a));
 }
 
@@ -252,7 +252,7 @@ export function buildWslWhich(
  *  --dangerously-skip-permissions as root ("cannot be used with root/sudo
  *  privileges for security reasons") and exits 1, which surfaces as an agent
  *  that dies instantly with no useful message. */
-export const ROOT_HOSTILE_FLAGS = [
+const ROOT_HOSTILE_FLAGS = [
   '--dangerously-skip-permissions',
   '--dangerously-bypass-approvals-and-sandbox'
 ];
@@ -263,7 +263,7 @@ export function rootHostileFlag(args: string[]): string | null {
 }
 
 /** PURE. argv that reports the effective uid + name inside the distro. */
-export function buildWslIdProbe(distro: string, user?: string): { file: string; args: string[] } {
+function buildWslIdProbe(distro: string, user?: string): { file: string; args: string[] } {
   const args = ['-d', distro];
   if (user) args.push('-u', user);
   args.push('-e', 'id', '-u');
@@ -288,7 +288,6 @@ export interface TerminalTargetConfig {
   terminalTarget?: 'auto' | 'windows' | 'wsl';
   wslDistro?: string;
   wslUser?: string;
-  terminalTargetChosen?: boolean;
 }
 
 export interface TargetDecision {
@@ -296,10 +295,6 @@ export interface TargetDecision {
   mode: 'native' | 'wsl';
   distro?: string;
   user?: string;
-  /** True when WSL exists, the user has never answered, and we are therefore
-   *  running native by default. The UI asks ONCE and records the answer; we do
-   *  not silently move an existing user's agents to another filesystem. */
-  needsChoice: boolean;
   /** Why we landed here. Surfaced in diagnostics and in the terminal when a
    *  configured target had to be abandoned - a silent fallback to cmd.exe is
    *  exactly the failure mode this whole feature exists to remove. */
@@ -319,40 +314,35 @@ export function resolveWslTarget(
 ): TargetDecision {
   // macOS/Linux already ARE the unix path; WSL is a Windows-only concept.
   if (platform !== 'win32') {
-    return { mode: 'native', needsChoice: false, reason: 'not a Windows host' };
+    return { mode: 'native', reason: 'not a Windows host' };
   }
   const usable = distros.filter(isSelectableDistro);
 
   if (cfg.terminalTarget === 'wsl') {
     if (!usable.length) {
-      return { mode: 'native', needsChoice: false, reason: 'WSL selected but no usable v2 distro was found' };
+      return { mode: 'native', reason: 'WSL selected but no usable v2 distro was found' };
     }
     // A distro can be uninstalled or renamed after being persisted. Fall back
     // LOUDLY rather than spawning into a distro the user did not pick.
     const named = cfg.wslDistro ? usable.find((d) => d.name === cfg.wslDistro) : null;
     if (cfg.wslDistro && !named) {
-      return {
-        mode: 'native',
-        needsChoice: false,
-        reason: `WSL distro "${cfg.wslDistro}" is no longer installed`
-      };
+      return { mode: 'native', reason: `WSL distro "${cfg.wslDistro}" is no longer installed` };
     }
     const chosen = named ?? pickDefaultDistro(usable);
     if (!chosen) {
-      return { mode: 'native', needsChoice: false, reason: 'WSL selected but no distro could be chosen' };
+      return { mode: 'native', reason: 'WSL selected but no distro could be chosen' };
     }
-    return { mode: 'wsl', distro: chosen.name, user: cfg.wslUser, needsChoice: false, reason: 'WSL selected' };
+    return { mode: 'wsl', distro: chosen.name, user: cfg.wslUser, reason: 'WSL selected' };
   }
 
   if (cfg.terminalTarget === 'windows') {
-    return { mode: 'native', needsChoice: false, reason: 'Windows selected' };
+    return { mode: 'native', reason: 'Windows selected' };
   }
 
-  // 'auto' or unset: run native, but tell the UI to ask when WSL is actually
-  // there and the question has never been put to the user.
+  // 'auto' or unset: never engage WSL on its own. The onboarding step is what
+  // sets an explicit target; anything that skipped it keeps today's behaviour.
   return {
     mode: 'native',
-    needsChoice: usable.length > 0 && cfg.terminalTargetChosen !== true,
     reason: usable.length ? 'no target chosen yet' : 'no WSL distro available'
   };
 }
@@ -380,14 +370,6 @@ function runWsl(args: string[], timeout = 20_000): WslResult {
   } catch (e) {
     return { ok: false, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
   }
-}
-
-/** True only on a Windows host that actually has WSL with a usable v2 distro.
- *  Everything else - macOS, Linux, Windows without WSL, WSL1-only - is false, so
- *  callers can treat WSL mode as simply unavailable rather than special-casing. */
-export function wslAvailable(): boolean {
-  if (process.platform !== 'win32') return false;
-  return detectDistros().length > 0;
 }
 
 let distroCache: WslDistro[] | null = null;

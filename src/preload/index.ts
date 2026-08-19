@@ -27,25 +27,18 @@ export type IntegrationRecordView = Omit<IntegrationRecord, 'secretRef'> & { has
 /** A WSL distro as reported by `wsl -l -v`, docker-desktop internals excluded. */
 export interface WslDistroView { name: string; state: string; version: number; isDefault: boolean }
 
-/** Everything the Settings panel and the first-run prompt need in one call.
- *  `decision.needsChoice` is true only when WSL exists AND the user has never
- *  answered - which is what makes the prompt fire exactly once. */
+/** Everything the WSL settings panel and the onboarding step need in one call. */
 export interface WslStatus {
   platform: string;
   available: boolean;
-  /** Effective uid inside the selected distro; null when unknown. */
-  uid: number | null;
-  /** uid === 0. WSL defaults to root on a stock install, and the CLI refuses
-   *  its auto-mode flag there. */
+  /** The selected distro runs as root. WSL is often left that way, and the CLI
+   *  refuses its auto-mode flag under uid 0. */
   isRoot: boolean;
   distros: WslDistroView[];
   target: 'auto' | 'windows' | 'wsl';
   distro: string | null;
   user: string | null;
-  chosen: boolean;
-  /** IS_SANDBOX=1 opt-in, letting Auto mode run under a root WSL user. */
-  treatAsSandbox: boolean;
-  decision: { mode: 'native' | 'wsl'; distro?: string; user?: string; needsChoice: boolean; reason: string };
+  decision: { mode: 'native' | 'wsl'; distro?: string; user?: string; reason: string };
 }
 
 // Injected at build time from package.json (see electron.vite.config.ts).
@@ -679,14 +672,12 @@ const api = {
   wsl: {
     status: (force = false): Promise<WslStatus> =>
       ipcRenderer.invoke('wsl:status', force),
-    setTarget: (patch: { target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string; treatAsSandbox?: boolean }):
+    setTarget: (patch: { target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string }):
       Promise<{ ok: boolean; error?: string; target?: string; distro?: string | null; user?: string | null }> =>
       ipcRenderer.invoke('wsl:setTarget', patch),
     probe: (distro?: string, user?: string):
       Promise<{ ok: boolean; error?: string; distro?: string; user?: string | null; tools?: Record<string, string | null> }> =>
-      ipcRenderer.invoke('wsl:probe', distro, user),
-    available: (): Promise<boolean> =>
-      ipcRenderer.invoke('wsl:available')
+      ipcRenderer.invoke('wsl:probe', distro, user)
   },
   /** Change the harness home folder. 'move' copies the existing hive + palace
    *  into the new folder (old kept as a safety net); 'fresh' just re-points and

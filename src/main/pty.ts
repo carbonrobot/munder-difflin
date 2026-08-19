@@ -615,27 +615,24 @@ export class PtyManager {
           // and the CLI refuses its auto-mode flag under uid 0 — it exits 1 with a
           // one-line complaint, which reaches the user as an agent that died
           // instantly for no visible reason. Say what happened and what to do.
-          // ROOT. A WSL distro is very often left with root as its default user,
-          // and the CLI refuses its auto-mode flag under uid 0 unless IS_SANDBOX=1
-          // marks the environment as a deliberate sandbox. That escape hatch is
-          // the CLI's own; we only pass it when the user has opted in, because it
-          // relaxes a real safety check.
-          const sandboxOptIn = readConfig().wslTreatAsSandbox === true;
+          // ROOT. A WSL distro is often left with root as its default user, and
+          // the CLI refuses its auto-mode flag under uid 0. The CLI does expose an
+          // IS_SANDBOX=1 escape hatch, but we deliberately do NOT use it: WSL
+          // mounts every Windows drive world-writable at /mnt, so an agent running
+          // with permissions skipped can rewrite the user's real files either way.
+          // Requiring a non-root account keeps at least the distro itself intact.
           const hostile = rootHostileFlag(opts.args ?? []);
-          if (hostile && !sandboxOptIn && probeWslUid(distro, wslTarget.user) === 0) {
+          if (hostile && probeWslUid(distro, wslTarget.user) === 0) {
             return {
               ok: false,
-              error: `WSL (${distro}) runs as root, and ${hostile} is refused under root. `
-                + `Either tick "Treat WSL as a sandbox" in Settings (exports IS_SANDBOX=1), `
-                + `run as a non-root WSL user, or turn off Auto mode.`
+              error: `WSL (${distro}) is running as root, and ${hostile} is refused under root. `
+                + `Create a non-root user in the distro (sudo adduser <name>) and set it as the `
+                + `WSL user in Settings, or turn off Auto mode.`
             };
           }
           const built = buildWslSpawn({
             distro, user: wslTarget.user, cwd: opts.cwd,
-            command: inDistro,
-            args: opts.args,
-            env: sandboxOptIn ? { ...(opts.env ?? {}), IS_SANDBOX: '1' } : opts.env,
-            path: userPath
+            command: inDistro, args: opts.args, env: opts.env, path: userPath
           });
           file = built.file; spawnArgs = built.args;
         }

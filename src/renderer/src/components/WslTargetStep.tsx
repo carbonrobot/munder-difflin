@@ -106,7 +106,7 @@ export function WslTargetStep({
           background: 'var(--cth-paper-100)', boxShadow: 'inset 0 0 0 1px var(--cth-ink-900)'
         }}>
           <strong>Heads up:</strong> this distro runs as <code>root</code>. Auto mode passes
-          a flag the CLI refuses under root, so agents will not start. Create a normal user
+          a flag the CLI refuses under root, so agents will not start. Create a non-root user
           (<code>sudo adduser yourname</code>) and set it in Settings, or turn Auto mode off
           on the Permissions step.
         </div>

@@ -192,16 +192,6 @@ export interface HarnessConfig {
   wslDistro?: string;
   /** Linux user to run agents as. Unset = the distro's own default user. */
   wslUser?: string;
-  /** Set once the user has answered the first-run target prompt, so declining
-   *  WSL is remembered and we never ask twice. */
-  terminalTargetChosen?: boolean;
-  /** Treat the WSL distro as a deliberate sandbox, exporting IS_SANDBOX=1 so the
-   *  CLI permits its auto-mode flag under root. WSL installs are very often left
-   *  as root, and the CLI's own guard is
-   *  `getuid()===0 && IS_SANDBOX!=='1' && !CLAUDE_CODE_BUBBLEWRAP` — i.e. the
-   *  escape hatch is the CLI author's, not ours. Opt-in and default OFF: it
-   *  relaxes a real safety check, so it must be the user's decision. */
-  wslTreatAsSandbox?: boolean;
   /** When true, new agents are spawned with --permission-mode bypassPermissions. */
   autoMode: boolean;
   /** The command we run when spawning a new agent. */
@@ -427,7 +417,6 @@ const DEFAULTS: HarnessConfig = {
   recentHives: [],
   registeredRepos: [],
   terminalTarget: 'auto',
-  terminalTargetChosen: false,
   autoMode: true,
   defaultCommand: 'claude',
   godProvider: 'claude',

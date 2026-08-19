@@ -50,9 +50,7 @@ export function WslSettings() {
   const target = status.target;
   const distro = status.distro ?? status.distros.find((d) => d.isDefault)?.name ?? status.distros[0]?.name ?? '';
 
-  const save = async (patch: {
-    target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string; treatAsSandbox?: boolean;
-  }) => {
+  const save = async (patch: { target: 'auto' | 'windows' | 'wsl'; distro?: string; user?: string }) => {
     setBusy(true); setNote(''); setTools(null);
     try {
       const res = await window.cth.wsl.setTarget(patch);
@@ -149,26 +147,10 @@ export function WslSettings() {
           background: 'var(--cth-paper-100)', boxShadow: 'inset 0 0 0 1px var(--cth-ink-900)'
         }}>
           <strong>This distro runs as root.</strong> Agents using Auto mode will refuse to
-          start (<code>--dangerously-skip-permissions</code> is rejected under root). Create a
-          normal user in the distro and set it above:
+          start — <code>--dangerously-skip-permissions</code> is rejected under root. Create a
+          non-root user in the distro and set it in the field above:
           <div style={{ marginTop: 4 }}><code>sudo adduser yourname</code></div>
-          Or treat the distro as a sandbox:
-          <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6 }}>
-            <input
-              type="checkbox"
-              checked={status.treatAsSandbox}
-              disabled={busy}
-              onChange={(e) => void save({ target: 'wsl', distro, treatAsSandbox: e.target.checked })}
-            />
-            <span>
-              Treat WSL as a sandbox (<code>IS_SANDBOX=1</code>)
-              <div style={{ ...noteStyle, marginTop: 2 }}>
-                Uses the CLI&apos;s own escape hatch for root inside a deliberate sandbox.
-                It relaxes a real safety check — the agent runs with permission prompts
-                skipped, as root, with your Windows drives mounted at <code>/mnt</code>.
-              </div>
-            </span>
-          </label>
+          <div style={{ marginTop: 4 }}>Or turn Auto mode off in Permissions.</div>
         </div>
       )}
 

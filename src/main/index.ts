@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { request as httpsRequest } from 'node:https';
 import { PtyManager, type SpawnOptions } from './pty';
 import {
-  detectDistros, resolveWslTarget, clearWslCache, resolveWslCommand, wslAvailable, probeWslUid
+  detectDistros, resolveWslTarget, clearWslCache, resolveWslCommand, probeWslUid
 } from './wsl';
 import { resolveCommand as resolveCliCommand } from './shellEnv';
 import { initAutoUpdater } from './updater';
@@ -2802,9 +2802,8 @@ ipcMain.handle('session:resolveCwd', (_evt, sessionId: unknown) =>
 // Where agent terminals run. Windows-only in effect; every handler answers
 // harmlessly on macOS/Linux so the renderer needs no platform branch.
 
-/** Distros the user could pick, plus the live decision. `needsChoice` is what
- *  drives the one-time first-run prompt: WSL is installed, the question has
- *  never been put to the user, and we are therefore still running native. */
+/** Distros the user could pick, plus the live decision and the effective uid of
+ *  the distro we would actually spawn into. */
 ipcMain.handle('wsl:status', (_evt, force: unknown) => {
   const distros = detectDistros(force === true);
   const cfg = readConfig();
@@ -2812,25 +2811,20 @@ ipcMain.handle('wsl:status', (_evt, force: unknown) => {
   // uid of the distro we would actually use, so the UI can warn BEFORE a spawn
   // dies. Only probed when a target exists; null = unknown, never assumed safe.
   const probeTarget = decision.mode === 'wsl' ? decision.distro : (cfg.wslDistro ?? null);
-  const uid = probeTarget ? probeWslUid(probeTarget, cfg.wslUser) : null;
   return {
     platform: process.platform,
     available: distros.length > 0,
-    uid,
-    isRoot: uid === 0,
+    isRoot: probeTarget ? probeWslUid(probeTarget, cfg.wslUser) === 0 : false,
     distros,
     target: cfg.terminalTarget ?? 'auto',
     distro: cfg.wslDistro ?? null,
     user: cfg.wslUser ?? null,
-    chosen: cfg.terminalTargetChosen === true,
-    treatAsSandbox: cfg.wslTreatAsSandbox === true,
     decision
   };
 });
 
-/** Persist the user's choice. Always stamps terminalTargetChosen so declining
- *  WSL is remembered and the prompt never reappears. Clears the detection +
- *  resolution caches, because distro/user changes invalidate both. */
+/** Persist the user's choice. Clears the detection + resolution caches, because
+ *  a distro/user change invalidates both. */
 ipcMain.handle('wsl:setTarget', (_evt, patch: unknown) => {
   const p = (patch ?? {}) as { target?: unknown; distro?: unknown; user?: unknown };
   const target = p.target === 'wsl' || p.target === 'windows' || p.target === 'auto' ? p.target : null;
@@ -2840,10 +2834,6 @@ ipcMain.handle('wsl:setTarget', (_evt, patch: unknown) => {
   }
   const next = writeConfig({
     terminalTarget: target,
-    terminalTargetChosen: true,
-    ...(typeof (p as { treatAsSandbox?: unknown }).treatAsSandbox === 'boolean'
-      ? { wslTreatAsSandbox: (p as { treatAsSandbox: boolean }).treatAsSandbox }
-      : {}),
     ...(typeof p.distro === 'string' ? { wslDistro: p.distro } : {}),
     ...(typeof p.user === 'string' ? { wslUser: p.user } : {})
   });
@@ -2866,9 +2856,6 @@ ipcMain.handle('wsl:probe', (_evt, distro: unknown, user: unknown) => {
   }
   return { ok: true, distro: name, user: asUser ?? null, tools };
 });
-
-/** Cheap boolean for gating UI without paying a full status call. */
-ipcMain.handle('wsl:available', () => wslAvailable());
 
 // ─── IPC: clipboard ─────────────────────────────────────────────────────────
 ipcMain.handle('app:copyToClipboard', (_evt, text: unknown) => {
