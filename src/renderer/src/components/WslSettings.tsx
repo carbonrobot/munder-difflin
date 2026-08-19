@@ -5,7 +5,7 @@ import { PixelButton } from './PixelButton';
 /**
  * WslSettings — where agent terminals run, on Windows.
  *
- * Most developers run Claude Code inside WSL2, but the Windows spawn path targets
+ * Many developers install their agent CLI inside WSL2, but the Windows spawn path targets
  * cmd.exe, which truncates a multi-line argument at its first newline: the hive
  * protocol rides on such an argument, so a Windows agent could boot looking
  * perfectly healthy having never learned it had an inbox. Targeting WSL execs
@@ -78,9 +78,9 @@ export function WslSettings() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={headStyle}>Terminal target</div>
       <div style={{ fontSize: 12, color: 'var(--cth-ink-700)', lineHeight: '18px' }}>
-        Where agents run their CLI. Most developers install Claude Code inside WSL2 —
-        targeting it runs agents there, with a Linux-only PATH so <code>git</code> and{' '}
-        <code>node</code> resolve to their Linux builds rather than Windows ones.
+        Where agents run their CLI. If your agent CLI is installed inside WSL2, target it —
+        agents run there with a Linux-only PATH, so <code>git</code> and <code>node</code>{' '}
+        resolve to their Linux builds rather than Windows ones.
       </div>
 
       {!status.available && (
