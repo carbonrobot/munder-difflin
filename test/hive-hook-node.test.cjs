@@ -104,6 +104,17 @@ test('the claude hook + statusLine commands run through the launcher', async (t)
   for (const cmd of commands) assert.equal(usesLauncher(cmd, launcher), true, cmd);
 });
 
+test('the per-session Claude settings pre-accept the auto-mode warning', async (t) => {
+  const home = tmpHome();
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const hive = new HiveManager(() => home);
+  await hive.ensureAgent({ id: 'god', name: 'Michael', provider: 'claude', cwd: home });
+
+  const settings = JSON.parse(fs.readFileSync(path.join(home, 'hive/agents/god/settings.json'), 'utf8'));
+  assert.equal(settings.skipDangerousModePermissionPrompt, true);
+  assert.equal(settings.skipAutoPermissionPrompt, true);
+});
+
 test('every hook installer routes through the launcher — none left on bare node', async (t) => {
   const home = tmpHome();
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));

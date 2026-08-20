@@ -856,6 +856,13 @@ export class HiveManager {
     });
     const mcpServers = this.buildDefaultMcpServers(cwd, cfg);
     return {
+      // Keep the bypass consent on the settings file loaded by THIS process.
+      // Writing it only to ~/.claude/settings.json is racy (another Claude
+      // process can overwrite that file) and targets the Windows home when the
+      // terminal runs in WSL. If the warning appears, the boot-time
+      // /remote-control submission confirms its default "No, exit" choice.
+      skipDangerousModePermissionPrompt: true,
+      skipAutoPermissionPrompt: true,
       // Match the TUI's truecolor palette to the harness terminal theme —
       // PER SESSION, so the user's global Claude theme (their own terminals
       // outside the app) is never touched.
