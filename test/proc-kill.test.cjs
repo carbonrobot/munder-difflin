@@ -48,6 +48,11 @@ function spawnStubbornTree() {
   return proc.pid;
 }
 
+/** A normal child (same process group as this test) with its own descendant. */
+function spawnOrdinaryTree() {
+  return spawn('sh', ['-c', 'trap "" HUP; sleep 60 & wait'], { stdio: 'ignore' });
+}
+
 let failures = 0;
 async function test(name, fn) {
   try { await fn(); console.log(`  ok  ${name}`); }
@@ -72,6 +77,15 @@ async function test(name, fn) {
     hardKillTree(pid);
     await sleep(300);
     assert.deepEqual(groupPids(pid), [], 'group should be empty');
+  });
+
+  await test('hardKillTree reaps descendants of a non-group-leader child', async () => {
+    const proc = spawnOrdinaryTree();
+    await sleep(300);
+    assert.ok(isAlive(proc.pid), 'ordinary child should be alive');
+    hardKillTree(proc.pid);
+    await sleep(300);
+    assert.ok(!isAlive(proc.pid), 'ordinary child should be dead');
   });
 
   await test('SIGHUP alone does NOT kill the stubborn leader (the leak)', async () => {

@@ -16,7 +16,7 @@
 import { existsSync, statSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { ensureKilled } from './procKill';
+import { ensureKilled, hardKillTree } from './procKill';
 
 /** Non-memory files `mempalace mine` must not ingest: the Claude Code hooks
  *  config (a large JSON blob that swamps the wake-up digest), the cursor, and
@@ -65,6 +65,8 @@ export class MemoryManager {
   private mining = false;
   /** agentId → memory.md mtimeMs at last successful mine (skip unchanged). */
   private lastMined = new Map<string, number>();
+  /** Every in-flight CLI child, so shutdown cannot orphan a model process. */
+  private children = new Set<ReturnType<typeof spawn>>();
 
   constructor(
     private getHome: () => string | null,
@@ -165,6 +167,16 @@ export class MemoryManager {
 
   stop(): void {
     if (this.mineTimer) { clearInterval(this.mineTimer); this.mineTimer = null; }
+    for (const child of this.children) hardKillTree(child.pid);
+    this.children.clear();
+  }
+
+  private trackChild<T extends ReturnType<typeof spawn>>(child: T): T {
+    this.children.add(child);
+    const forget = (): void => { this.children.delete(child); };
+    child.once('close', forget);
+    child.once('error', forget);
+    return child;
   }
 
   private startMineLoop(): void {
@@ -211,9 +223,9 @@ export class MemoryManager {
       if (!bin) { resolve(); return; }
       ensureMineIgnore(agentDir); // keep settings.json / cursor / messages out of the index
       // stdin closed (mempalace can prompt); mempalace dedups so re-mining is safe.
-      const proc = spawn(bin, ['mine', agentDir, '--wing', id, '--agent', id], {
+      const proc = this.trackChild(spawn(bin, ['mine', agentDir, '--wing', id, '--agent', id], {
         env: this.childEnv(), stdio: ['ignore', 'ignore', 'pipe']
-      });
+      }));
       let err = '';
       proc.stderr?.on('data', (d) => { err += d.toString(); });
       // Hard ceiling: a wedged mine used to hold its PID forever AND leave
@@ -249,7 +261,7 @@ export class MemoryManager {
       if (!this.active() || !bin) { resolve({ ok: false, output: '', error: 'semantic memory not active' }); return; }
       let proc: ReturnType<typeof spawn>;
       try {
-        proc = spawn(bin, args, { env: this.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+        proc = this.trackChild(spawn(bin, args, { env: this.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] }));
       } catch (e) {
         resolve({ ok: false, output: '', error: e instanceof Error ? e.message : String(e) });
         return;

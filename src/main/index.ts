@@ -11,7 +11,8 @@ import { homedir } from 'node:os';
 import { request as httpsRequest } from 'node:https';
 import { PtyManager, type SpawnOptions } from './pty';
 import {
-  detectDistros, resolveWslTarget, clearWslCache, resolveWslCommand, probeWslUid
+  detectDistros, resolveWslTarget, clearWslCache, resolveWslCommand, probeWslUid,
+  resolveWslHome, resolveTargetCommandPath, toWslPath, toWslUncPath
 } from './wsl';
 import { resolveCommand as resolveCliCommand } from './shellEnv';
 import { initAutoUpdater } from './updater';
@@ -2532,6 +2533,10 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
     const baseUrl = readConfig().providerBaseUrls?.[provider];
     if (bridge && bridge.kind === 'proxy' && baseUrl) process.env[bridge.baseUrlEnv] = baseUrl;
   }
+  // Resolve once and share the decision with hive settings, folder trust, and
+  // the PTY spawn. In WSL, generated commands and Claude's persisted cwd key use
+  // the distro namespace rather than Windows paths.
+  const terminalTarget = resolveWslTarget(readConfig(), process.platform, detectDistros());
   // If the agent carries hive metadata, provision its workspace and add
   // provider-specific spawn injection. Non-Claude providers get shared AGENT_*
   // env only; Claude Code also gets prompt/settings hook args.
@@ -2541,7 +2546,6 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
   let seedPrompt: string | undefined;
   if (opts.hive && hive.enabled()) {
     try {
-      const shellTarget = resolveWslTarget(readConfig(), process.platform, detectDistros()).mode;
       const inj = await hive.ensureAgent(
         { ...opts.hive, cwd: opts.cwd, provider },
         {
@@ -2557,7 +2561,7 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
           mcpDefaults: readConfig().mcpDefaults,
           skillsDir: skillsResourceDir(),
           autoMode: readConfig().autoMode,
-          shellTarget
+          shellTarget: terminalTarget.mode
         }
       );
       opts.args = [...(opts.args ?? []), ...inj.args];
@@ -2700,7 +2704,19 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
   // is scoped to Auto Mode in the per-session --settings file generated above.
   // Claude-only — other CLIs handle their own permission UX.
   if (claudeProvider) {
-    try { ensureClaudeFolderTrusted(opts.cwd); } catch { /* never block spawn */ }
+    try {
+      if (terminalTarget.mode === 'wsl' && terminalTarget.distro) {
+        const wslHome = resolveWslHome(terminalTarget.distro, terminalTarget.user);
+        if (wslHome) {
+          ensureClaudeFolderTrusted(
+            toWslPath(opts.cwd),
+            toWslUncPath(terminalTarget.distro, wslHome)
+          );
+        }
+      } else {
+        ensureClaudeFolderTrusted(opts.cwd);
+      }
+    } catch { /* never block spawn */ }
   }
   // Suppress first-run interactive prompts for providers that need it (e.g. Codex
   // directory-trust gate via CODEX_NON_INTERACTIVE). Merges into any env already
@@ -3086,7 +3102,7 @@ ipcMain.handle('config:changeHome', async (_evt, payload: unknown) => {
   // (Identical recovery path to resetAll — relaunch is the clean re-bind.)
   allowQuit = true;
   writeConfig({ harnessHome: newHome });
-  try { ptyManager.killAll(); } catch (e) { console.error('[changeHome] killAll:', e); }
+  teardownHarness();
   app.relaunch();
   app.exit(0);
   return { ok: true as const }; // unreachable (process exits) — typed for the renderer
@@ -3321,13 +3337,13 @@ ipcMain.handle('skills:reveal', (_evt, path: unknown) => {
 
 // ─── IPC: setup catalog (which external tools are actually here) ────────────
 /**
- * Probe every catalog row against THIS machine.
+ * Probe every catalog row against the selected agent execution target.
  *
- * Presence is a PATH resolution, not a spawn: running each candidate to read a
+ * Presence is a PATH resolution, not a version probe: running each candidate to read a
  * --version would be a dozen process launches on every panel open, and several of
- * these CLIs boot a TUI when invoked bare. `resolveCommand` returns its input
- * unchanged when it finds nothing, so "resolved to a real, existing path that is
- * not just the bare name" is the found test.
+ * these CLIs boot a TUI when invoked bare. Native terminals reuse PtyManager's
+ * resolver; WSL terminals resolve inside the selected distro, so the displayed
+ * path is the executable an agent will actually run rather than its Windows peer.
  *
  * mempalace is the one row that does NOT come from PATH: the memory subsystem
  * already resolves it (including uv/pip locations PATH may not carry for a
@@ -3335,7 +3351,8 @@ ipcMain.handle('skills:reveal', (_evt, path: unknown) => {
  * authoritative and reused rather than re-probed differently here.
  */
 ipcMain.handle('tools:status', (): ToolStatus[] => {
-  const win = process.platform === 'win32';
+  const target = resolveWslTarget(readConfig(), process.platform, detectDistros());
+  const win = process.platform === 'win32' && target.mode !== 'wsl';
   const mem = (() => { try { memory.resetBinCache(); return memory.status(); } catch { return null; } })();
   return toolCatalog().map((spec): ToolStatus => {
     const installCommand = win ? spec.install.win32 : spec.install.posix;
@@ -3353,8 +3370,11 @@ ipcMain.handle('tools:status', (): ToolStatus[] => {
     if (!spec.bin) return { ...spec, installCommand, found: false, path: null };
     let path: string | null = null;
     try {
-      const resolved = resolveCliCommand(spec.bin);
-      if (resolved !== spec.bin && existsSync(resolved)) path = resolved;
+      path = resolveTargetCommandPath(
+        target,
+        spec.bin,
+        (command) => ptyManager.commandPath(command)
+      );
     } catch { /* a probe must never take the panel down */ }
     return { ...spec, installCommand, found: !!path, path };
   });
@@ -3476,16 +3496,23 @@ ipcMain.handle('history:search', (_evt, query: unknown, limit: unknown) =>
   persist.searchHistory(typeof query === 'string' ? query : '', typeof limit === 'number' ? limit : undefined));
 
 // ─── IPC: quit confirmation ─────────────────────────────────────────────────
-/** Tear the harness down and quit. Shared by the hard "kill all & quit" path
- *  and the closing-time conclusion (after the god confirmed the floor saved). */
-function teardownAndQuit(): void {
-  allowQuit = true;
+let harnessTornDown = false;
+
+/** Stop every process-owning service exactly once. All quit routes converge here;
+ *  otherwise a zero-PTY quit skips the confirmation path and can leave sidecars,
+ *  memory commands, and sockets alive. */
+function teardownHarness(): void {
+  if (harnessTornDown) return;
+  harnessTornDown = true;
   // Each teardown step is best-effort: a throw here (e.g. a dying child or a
   // half-torn-down socket) must never abort the quit or pop a crash dialog.
   try { clearMissionTimers(); } catch (e) { console.error('[quit] clearMissionTimers:', e); }
   try { clearContextTimers(); } catch (e) { console.error('[quit] clearContextTimers:', e); }
+  try { stopAlwaysOnBeats(); } catch (e) { console.error('[quit] stopAlwaysOnBeats:', e); }
   try { stopWebhookDoneObserver(); } catch (e) { console.error('[quit] stopWebhookDoneObserver:', e); }
   try { stopEphemeralWorkerWatcher(); } catch (e) { console.error('[quit] stopWorkerWatcher:', e); }
+  try { completionWatcher.stop(); } catch (e) { console.error('[quit] completionWatcher.stop:', e); }
+  try { floorWatcher.stop(); } catch (e) { console.error('[quit] floorWatcher.stop:', e); }
   try { integrationBroker.stop(); } catch (e) { console.error('[quit] broker.stop:', e); }
   try { hive.stopRouter(); } catch (e) { console.error('[quit] stopRouter:', e); }
   try { hookServer.stop(); } catch (e) { console.error('[quit] hookServer.stop:', e); }
@@ -3497,6 +3524,14 @@ function teardownAndQuit(): void {
   try { persist.close(); } catch (e) { console.error('[quit] persist.close:', e); }
   try { hive.stopAllProxyBridges(); } catch (e) { console.error('[quit] stopAllProxyBridges:', e); }
   try { ptyManager.killAll(); } catch (e) { console.error('[quit] killAll:', e); }
+  syncKeepAwake();
+}
+
+/** Tear the harness down and quit. Shared by the hard "kill all & quit" path
+ *  and the closing-time conclusion (after the god confirmed the floor saved). */
+function teardownAndQuit(): void {
+  allowQuit = true;
+  teardownHarness();
   app.quit();
 }
 ipcMain.handle('app:confirmClose', () => {
@@ -3551,6 +3586,7 @@ ipcMain.handle('app:resetAll', () => {
   try { memory.stop(); } catch (e) { console.error('[reset] memory.stop:', e); }
   try { reflector.stop(); } catch (e) { console.error('[reset] reflector.stop:', e); }
   try { persist.close(); } catch (e) { console.error('[reset] persist.close:', e); }
+  try { hive.stopAllProxyBridges(); } catch (e) { console.error('[reset] stopAllProxyBridges:', e); }
   try { ptyManager.killAll(); } catch (e) { console.error('[reset] killAll:', e); }
   // Erase the hive (Michael's + every agent's memory, inboxes, tasks, board,
   // git history) and the semantic-memory palace. Only these harness-created
@@ -4708,6 +4744,12 @@ function armAlwaysOnBeats(): void {
   breakerBeatTimer = setInterval(() => { try { runBreakerBeat(300_000); } catch (e) { console.error('[breaker beat]', e); } }, 30_000);
 }
 
+function stopAlwaysOnBeats(): void {
+  if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
+  if (breakerBeatTimer) { clearInterval(breakerBeatTimer); breakerBeatTimer = null; }
+  if (resumeHealthTimer) { clearTimeout(resumeHealthTimer); resumeHealthTimer = null; }
+}
+
 /** Wall-clock instant we last observed the machine suspend or lock, so a resume
  *  can report how long we were out. Best-effort context for the renderer follow-on
  *  (auto-revive); null until the first suspend/lock of the session. */
@@ -4869,7 +4911,11 @@ app.whenReady().then(() => {
 app.on('before-quit', (e) => {
   if (allowQuit) return;
   const count = ptyManager.list().length;
-  if (count === 0) return;
+  if (count === 0) {
+    allowQuit = true;
+    teardownHarness();
+    return;
+  }
   e.preventDefault();
   if (mainWindow) {
     mainWindow.focus();
@@ -4879,7 +4925,6 @@ app.on('before-quit', (e) => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    ptyManager.killAll();
     app.quit();
   }
 });

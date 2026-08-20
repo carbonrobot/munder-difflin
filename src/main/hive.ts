@@ -38,6 +38,7 @@ import {
 import { MCP_CATALOG } from '../shared/mcpCatalog';
 import { expandTilde } from './fs';
 import { buildWslNodeCommand } from './wsl';
+import { hardKillTree } from './procKill';
 
 /** The subset of HarnessConfig the hive consumes for the default-MCP merge.
  *  Kept as a local shape so hive.ts never imports the foundation-owned config
@@ -1044,7 +1045,7 @@ export class HiveManager {
     const child = this.proxyChildren.get(agentId);
     if (!child) return;
     this.proxyChildren.delete(agentId);
-    try { child.kill(); } catch { /* already gone */ }
+    hardKillTree(child.pid);
   }
 
   /** Kill every live proxy sidecar (app quit). Best-effort. */

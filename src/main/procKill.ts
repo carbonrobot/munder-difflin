@@ -31,13 +31,41 @@ export function isAlive(pid: number): boolean {
  *  back to the single pid when the group id is gone); `taskkill /T /F` on
  *  Windows. Killing the group of an already-dead leader is exactly the
  *  orphan-reaping case: any surviving members still hold the group id. */
-export function hardKillTree(pid: number): void {
-  if (!Number.isInteger(pid) || pid <= 0) return;
+export function hardKillTree(pid: number | undefined): void {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return;
   if (process.platform === 'win32') {
     try { spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { timeout: 10_000 }); } catch { /* gone */ }
     return;
   }
-  try { process.kill(-pid, 'SIGKILL'); } catch {
+  try {
+    process.kill(-pid, 'SIGKILL');
+    return;
+  } catch {
+    // A normal child_process.spawn child is not a process-group leader. Snapshot
+    // its descendants while the parent still exists, then kill deepest-first so
+    // they cannot be orphaned to PID 1 before we discover them.
+    try {
+      const ps = spawnSync('ps', ['-e', '-o', 'pid=', '-o', 'ppid='], {
+        encoding: 'utf8', timeout: 5_000
+      });
+      const byParent = new Map<number, number[]>();
+      for (const line of (ps.stdout ?? '').split('\n')) {
+        const [childRaw, parentRaw] = line.trim().split(/\s+/);
+        const child = Number(childRaw), parent = Number(parentRaw);
+        if (!Number.isInteger(child) || !Number.isInteger(parent)) continue;
+        const children = byParent.get(parent) ?? [];
+        children.push(child);
+        byParent.set(parent, children);
+      }
+      const descendants: number[] = [];
+      const visit = (parent: number): void => {
+        for (const child of byParent.get(parent) ?? []) { visit(child); descendants.push(child); }
+      };
+      visit(pid);
+      for (const child of descendants) {
+        try { process.kill(child, 'SIGKILL'); } catch { /* gone */ }
+      }
+    } catch { /* `ps` unavailable — still kill the direct child below */ }
     try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
   }
 }

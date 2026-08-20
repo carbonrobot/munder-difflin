@@ -221,6 +221,20 @@ export function buildWslPathProbe(distro: string, user?: string): { file: string
   return { file: WSL_EXE, args };
 }
 
+/** PURE. Build the argv that reports the selected WSL user's actual home. */
+export function buildWslHomeProbe(distro: string, user?: string): { file: string; args: string[] } {
+  const args = ['-d', distro];
+  if (user) args.push('-u', user);
+  args.push('-e', '/bin/sh', '-c', 'printf %s "$HOME"');
+  return { file: WSL_EXE, args };
+}
+
+/** Convert an in-distro path to the Windows UNC spelling Electron can access. */
+export function toWslUncPath(distro: string, path: string): string {
+  const suffix = path.replace(/^\/+/, '').replace(/\//g, '\\');
+  return `\\\\wsl.localhost\\${distro}${suffix ? `\\${suffix}` : ''}`;
+}
+
 /**
  * PURE. Pull the PATH out of a probe's stdout, discarding any rc-file banner.
  * Returns null when the markers are absent (probe failed / shell died), so the
@@ -399,6 +413,7 @@ export function clearWslCache(): void {
   pathCache.clear();
   whichCache.clear();
   uidCache.clear();
+  homeCache.clear();
 }
 
 const pathCache = new Map<string, string>();
@@ -450,7 +465,35 @@ export function resolveWslCommand(distro: string, command: string, user?: string
   return resolved;
 }
 
+/** Resolve a command in the namespace where agents actually run. The native
+ * resolver is injected so callers can reuse their own cached PATH policy; tests
+ * can also prove a WSL target never leaks a Windows-host result into the UI. */
+export function resolveTargetCommandPath(
+  target: TargetDecision,
+  command: string,
+  nativeResolver: (command: string) => string | null,
+  wslResolver: (distro: string, command: string, user?: string) => string | null = resolveWslCommand
+): string | null {
+  if (target.mode === 'wsl' && target.distro) {
+    return wslResolver(target.distro, command, target.user);
+  }
+  return nativeResolver(command);
+}
+
 const uidCache = new Map<string, number | null>();
+
+const homeCache = new Map<string, string | null>();
+
+/** The selected user's absolute Linux home, or null when WSL cannot report it. */
+export function resolveWslHome(distro: string, user?: string): string | null {
+  const key = `${distro} ${user ?? ''}`;
+  const hit = homeCache.get(key);
+  if (hit !== undefined) return hit;
+  const res = runWsl(buildWslHomeProbe(distro, user).args, 15_000);
+  const home = res.ok && res.stdout.trim().startsWith('/') ? res.stdout.trim() : null;
+  homeCache.set(key, home);
+  return home;
+}
 
 /**
  * Effective uid inside the distro. 0 means the distro's default user is root,

@@ -712,9 +712,8 @@ export function ensureHarnessHome(path: string): { ok: boolean; error?: string }
 /** Idempotently pre-accept Claude Code's per-folder trust dialog for a managed
  *  workspace. Bypass-mode consent lives in the agent's per-session settings so
  *  Munder never changes that preference for the user's other Claude sessions. */
-export function ensureClaudeFolderTrusted(cwd?: string): void {
+export function ensureClaudeFolderTrusted(cwd?: string, home = homedir()): void {
   if (!cwd) return;
-  const home = homedir();
   if (!home) return;
   try {
     const p = join(home, '.claude.json');

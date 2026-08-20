@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join, win32 } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ensureKilled } from './procKill';
+import { ensureKilled, hardKillTree } from './procKill';
 import { expandTilde } from './fs';
 import { captureFromLoginShell, userShellPath } from './shellEnv';
 import { readConfig } from './config';
@@ -871,7 +871,9 @@ export class PtyManager {
       try {
         const pid = s.proc.pid;
         s.proc.kill();
-        ensureKilled(pid);
+        // Shutdown cannot rely on ensureKilled's delayed, unref'd timer: the
+        // Electron process exits before its escalation can fire.
+        hardKillTree(pid);
       } catch { /* noop */ }
     }
     this.sessions.clear();

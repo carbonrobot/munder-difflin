@@ -21,7 +21,8 @@ const loadTs = require('./load-ts.cjs');
 const {
   decodeWslOutput, parseDistroList, isSelectableDistro, stripWindowsPathEntries,
   toWslPath, buildWslNodeCommand, buildWslSpawn, buildWslPathProbe, buildWslWhich, pickDefaultDistro,
-  extractProbedPath, PATH_PROBE_BEGIN, PATH_PROBE_END, WSL_EXE, resolveWslTarget
+  buildWslHomeProbe, toWslUncPath, extractProbedPath, PATH_PROBE_BEGIN, PATH_PROBE_END,
+  WSL_EXE, resolveWslTarget, resolveTargetCommandPath
 } = loadTs('src/main/wsl.ts');
 
 // The REAL escaper node-pty applies to an argv array on Windows — the same module
@@ -202,6 +203,19 @@ test('buildWslPathProbe uses an INTERACTIVE shell, because nvm lives in .bashrc'
   assert.match(args[args.length - 1], /__MD_PATH_BEGIN__/);
 });
 
+test('buildWslHomeProbe targets the selected distro user', () => {
+  assert.deepEqual(buildWslHomeProbe('Ubuntu', 'carbo').args, [
+    '-d', 'Ubuntu', '-u', 'carbo', '-e', '/bin/sh', '-c', 'printf %s "$HOME"'
+  ]);
+});
+
+test('toWslUncPath addresses the distro home from Windows', () => {
+  assert.equal(
+    toWslUncPath('Ubuntu-24.04', '/home/carbo'),
+    '\\\\wsl.localhost\\Ubuntu-24.04\\home\\carbo'
+  );
+});
+
 // A REAL .bashrc banner captured from the host: figlet ASCII art printed to
 // stdout, containing an apostrophe. Interpolating this into a quoted shell
 // string produced a malformed script and a bogus "command not found".
@@ -280,6 +294,33 @@ test('resolveWslTarget engages WSL with the named distro', () => {
   assert.equal(d.mode, 'wsl');
   assert.equal(d.distro, 'Ubuntu');
   assert.equal(d.user, 'carbo');
+});
+
+test('target command resolution uses the WSL executable, never the Windows host path', () => {
+  let nativeCalls = 0;
+  const path = resolveTargetCommandPath(
+    { mode: 'wsl', distro: 'Ubuntu', user: 'carbo', reason: 'test' },
+    'node',
+    () => { nativeCalls++; return 'C:\\nvm4w\\nodejs\\node.exe'; },
+    (distro, command, user) => {
+      assert.equal(distro, 'Ubuntu');
+      assert.equal(command, 'node');
+      assert.equal(user, 'carbo');
+      return '/home/carbo/.nvm/versions/node/v24.13.1/bin/node';
+    }
+  );
+  assert.equal(path, '/home/carbo/.nvm/versions/node/v24.13.1/bin/node');
+  assert.equal(nativeCalls, 0);
+});
+
+test('target command resolution keeps the native executable outside WSL', () => {
+  const path = resolveTargetCommandPath(
+    { mode: 'native', reason: 'test' },
+    'git',
+    () => 'C:\\Program Files\\Git\\cmd\\git.exe',
+    () => { throw new Error('WSL resolver must not run'); }
+  );
+  assert.equal(path, 'C:\\Program Files\\Git\\cmd\\git.exe');
 });
 
 test('resolveWslTarget falls back LOUDLY when the saved distro is gone', () => {
