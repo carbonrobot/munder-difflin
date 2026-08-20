@@ -137,6 +137,14 @@ export function toWslPath(p: string, mountRoot = '/mnt'): string {
   return p.replace(/\\/g, '/');
 }
 
+/** Build a POSIX hook command for a Windows Electron app hosting a WSL agent.
+ * The shell needs the executable's `/mnt/c/...` spelling, but the Electron
+ * process is Windows-native and therefore needs the script's `C:\...` spelling.
+ * A Windows `.cmd` launcher is unusable under WSL's `/bin/sh`. */
+export function buildWslNodeCommand(executable: string, script: string): string {
+  return `ELECTRON_RUN_AS_NODE=1 "${toWslPath(executable)}" "${script}"`;
+}
+
 /**
  * PURE. Translate argv elements that are WHOLE absolute Windows paths into the
  * distro's namespace.

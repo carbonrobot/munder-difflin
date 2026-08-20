@@ -203,15 +203,15 @@ export function clearCommandForProvider(
   return contextCommandsForProvider(provider).clear;
 }
 
-/** Claude exposes remote control as a slash command; Codex uses its daemon and
- * Kimi has no equivalent slash command. */
-export function remoteControlCommandForProvider(
+/** Claude can enable Remote Control at process startup; Codex uses its daemon
+ * and the other providers have no equivalent startup argument. */
+export function remoteControlArgsForProvider(
   provider: AgentProvider,
   sessionName?: string
-): string | null {
-  if (provider !== 'claude') return null;
+): string[] {
+  if (provider !== 'claude') return [];
   const name = sessionName?.trim();
-  return name ? `/remote-control ${name}` : '/remote-control';
+  return name ? ['--remote-control', name] : ['--remote-control'];
 }
 
 /** Initial TUI output needs a short provider-specific settle before typing. */

@@ -20,7 +20,7 @@ const loadTs = require('./load-ts.cjs');
 
 const {
   decodeWslOutput, parseDistroList, isSelectableDistro, stripWindowsPathEntries,
-  toWslPath, buildWslSpawn, buildWslPathProbe, buildWslWhich, pickDefaultDistro,
+  toWslPath, buildWslNodeCommand, buildWslSpawn, buildWslPathProbe, buildWslWhich, pickDefaultDistro,
   extractProbedPath, PATH_PROBE_BEGIN, PATH_PROBE_END, WSL_EXE, resolveWslTarget
 } = loadTs('src/main/wsl.ts');
 
@@ -322,6 +322,18 @@ test('buildWslSpawn translates a whole-path argv element (the --settings case)',
   });
   assert.equal(args[args.length - 1], '/mnt/c/Users/carbo/.munder_3/hive/agents/god/settings.json');
   assert.equal(args[args.length - 2], '--settings', 'the flag itself must be untouched');
+});
+
+test('WSL hooks use a POSIX command, not the Windows hive-node.cmd launcher', () => {
+  const cmd = buildWslNodeCommand(
+    'C:\\Program Files\\Munder Difflin\\Munder Difflin.exe',
+    'C:\\Users\\carbo\\.munder_7\\hive\\bin\\cth-hook.cjs'
+  );
+  assert.equal(
+    cmd,
+    'ELECTRON_RUN_AS_NODE=1 "/mnt/c/Program Files/Munder Difflin/Munder Difflin.exe" "C:\\Users\\carbo\\.munder_7\\hive\\bin\\cth-hook.cjs"'
+  );
+  assert.equal(cmd.includes('.cmd'), false);
 });
 
 test('buildWslSpawn does NOT rewrite a path buried inside a prompt', () => {

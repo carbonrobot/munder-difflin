@@ -37,6 +37,7 @@ import {
 } from '../shared/agentProvider';
 import { MCP_CATALOG } from '../shared/mcpCatalog';
 import { expandTilde } from './fs';
+import { buildWslNodeCommand } from './wsl';
 
 /** The subset of HarnessConfig the hive consumes for the default-MCP merge.
  *  Kept as a local shape so hive.ts never imports the foundation-owned config
@@ -561,6 +562,9 @@ export class HiveManager {
       /** Whether this session is launched in bypassPermissions mode. The one-time
        *  consent is suppressed only for these explicitly autonomous sessions. */
       autoMode?: boolean;
+      /** Shell that executes generated hook commands. WSL needs POSIX commands
+       *  even though this Electron main process and its paths are Windows-native. */
+      shellTarget?: 'native' | 'wsl';
     } = {}
   ): Promise<SpawnInjection> {
     const root = this.root();
@@ -790,7 +794,14 @@ export class HiveManager {
     if (sock && shim) {
       env.HIVE_SOCK = sock;
       const settingsPath = join(dir, 'settings.json');
-      this.writeJson(settingsPath, this.hookSettings(shim, meta.cwd, opts.mcpDefaults, opts.theme, opts.autoMode));
+      this.writeJson(settingsPath, this.hookSettings(
+        shim,
+        meta.cwd,
+        opts.mcpDefaults,
+        opts.theme,
+        opts.autoMode,
+        opts.shellTarget
+      ));
       args.push('--settings', settingsPath);
     }
     return { args, env };
@@ -854,11 +865,14 @@ export class HiveManager {
     cwd: string,
     cfg: McpDefaultsMap,
     theme?: 'light' | 'dark',
-    autoMode = false
+    autoMode = false,
+    shellTarget: 'native' | 'wsl' = 'native'
   ): unknown {
     // Bundled node, NOT bare `node` — see nodeLauncherPath(). Claude runs each of
     // these through `sh -c` with a stripped PATH, where `node` is often absent.
-    const cmd = this.nodeRun(shim);
+    const cmd = shellTarget === 'wsl'
+      ? buildWslNodeCommand(process.execPath, shim)
+      : this.nodeRun(shim);
     const entry = (matcher?: string) => ({
       ...(matcher ? { matcher } : {}),
       hooks: [{ type: 'command', command: cmd }]

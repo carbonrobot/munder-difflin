@@ -123,6 +123,26 @@ test('the per-session Claude settings pre-accept the auto-mode warning', async (
   assert.equal('skipAutoPermissionPrompt' in manual, false);
 });
 
+test('WSL Claude settings use a POSIX hook command instead of hive-node.cmd', async (t) => {
+  const home = tmpHome();
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const hive = new HiveManager(() => home);
+  await hive.ensureAgent(
+    { id: 'god', name: 'Michael', provider: 'claude', cwd: home },
+    { shellTarget: 'wsl' }
+  );
+
+  const settings = JSON.parse(fs.readFileSync(path.join(home, 'hive/agents/god/settings.json'), 'utf8'));
+  const commands = [
+    ...Object.values(settings.hooks).flatMap((matchers) => matchers.flatMap((m) => m.hooks.map((h) => h.command))),
+    settings.statusLine.command
+  ];
+  for (const cmd of commands) {
+    assert.match(cmd, /^ELECTRON_RUN_AS_NODE=1 /);
+    assert.equal(cmd.includes('hive-node.cmd'), false);
+  }
+});
+
 test('every hook installer routes through the launcher — none left on bare node', async (t) => {
   const home = tmpHome();
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));

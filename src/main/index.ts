@@ -74,6 +74,7 @@ import {
   type AgentProvider
 } from '../shared/agentProvider';
 import { buildMissingCliScript, chooseInstallRung } from './cliInstall';
+import { remoteControlArgsForProvider } from '../shared/providerAutomation';
 import { detectNodeVersion, nodeIsUsable, resolveNodeInstaller } from './nodeInstall';
 import { toolCatalog, type ToolStatus } from '../shared/toolCatalog';
 import { listLocalSkills, loadCatalog, installSkill, uninstallSkill, type LocalSkill } from './skills';
@@ -2540,6 +2541,7 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
   let seedPrompt: string | undefined;
   if (opts.hive && hive.enabled()) {
     try {
+      const shellTarget = resolveWslTarget(readConfig(), process.platform, detectDistros()).mode;
       const inj = await hive.ensureAgent(
         { ...opts.hive, cwd: opts.cwd, provider },
         {
@@ -2554,7 +2556,8 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
           // W3 — default-MCP consent state + the bundled skills source dir.
           mcpDefaults: readConfig().mcpDefaults,
           skillsDir: skillsResourceDir(),
-          autoMode: readConfig().autoMode
+          autoMode: readConfig().autoMode,
+          shellTarget
         }
       );
       opts.args = [...(opts.args ?? []), ...inj.args];
@@ -2600,6 +2603,13 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
       const label = (opts.hive.name || opts.hive.id || '')
         .trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
       if (label) args.push('--remote-control-session-name-prefix', label);
+    }
+    // Michael is always remotely reachable. Use Claude's startup flag rather
+    // than typing `/remote-control Michael` into a TUI whose input handler may
+    // still be mounting; the simulated Enter could be dropped and leave the
+    // command visibly stranded in the prompt.
+    if (opts.hive.isGod && !args.includes('--remote-control')) {
+      args.push(...remoteControlArgsForProvider('claude', opts.hive.name || 'Michael'));
     }
     // Coarse runaway cap.
     if (typeof cfg.maxTurns === 'number' && cfg.maxTurns > 0 && !args.includes('--max-turns')) {

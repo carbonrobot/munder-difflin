@@ -9,7 +9,7 @@ const {
   compactionCommandForProvider,
   contextCommandsForProvider,
   isCompactionCommand,
-  remoteControlCommandForProvider,
+  remoteControlArgsForProvider,
   terminalReadySettleMs,
   terminalReadyToReceive
 } = loadTs('src/shared/providerAutomation.ts');
@@ -119,11 +119,12 @@ test('every provider preset has a considered context-command entry', () => {
   }
 });
 
-test('Claude alone receives a remote-control slash command', () => {
-  assert.equal(remoteControlCommandForProvider('claude', 'Michael'), '/remote-control Michael');
-  assert.equal(remoteControlCommandForProvider('codex', 'Jim'), null);
-  assert.equal(remoteControlCommandForProvider('grok', 'Grok'), null);
-  assert.equal(remoteControlCommandForProvider('kimi', 'Pam'), null);
+test('Claude alone receives remote-control startup arguments', () => {
+  assert.deepEqual(remoteControlArgsForProvider('claude', 'Michael'), ['--remote-control', 'Michael']);
+  assert.deepEqual(remoteControlArgsForProvider('claude'), ['--remote-control']);
+  assert.deepEqual(remoteControlArgsForProvider('codex', 'Jim'), []);
+  assert.deepEqual(remoteControlArgsForProvider('grok', 'Grok'), []);
+  assert.deepEqual(remoteControlArgsForProvider('kimi', 'Pam'), []);
 });
 
 test('provider readiness policies allow each TUI to settle', () => {
