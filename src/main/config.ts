@@ -709,49 +709,23 @@ export function ensureHarnessHome(path: string): { ok: boolean; error?: string }
   }
 }
 
-/** Idempotently pre-accept Claude Code's first-run prompts so agents spawned with
- *  `--permission-mode bypassPermissions` start cleanly. Without this, a fresh
- *  install shows an interactive "WARNING: Bypass Permissions mode … 1. No, exit /
- *  2. Yes, I accept" prompt that the PTY can't answer in time, so the agent exits
- *  code 1 on its own (reported by multiple users).
- *
- *  Two separate gates, written only when they aren't already satisfied (so we
- *  rarely touch files a running `claude` also writes):
- *   1. `~/.claude/settings.json` → `skipDangerousModePermissionPrompt` +
- *      `skipAutoPermissionPrompt` — these gate the bypass-mode warning (global).
- *   2. `~/.claude.json` → `projects[cwd].hasTrustDialogAccepted` — the per-folder
- *      "do you trust the files in this folder?" dialog. */
-export function ensureClaudePermissionsAccepted(cwd?: string): void {
+/** Idempotently pre-accept Claude Code's per-folder trust dialog for a managed
+ *  workspace. Bypass-mode consent lives in the agent's per-session settings so
+ *  Munder never changes that preference for the user's other Claude sessions. */
+export function ensureClaudeFolderTrusted(cwd?: string): void {
+  if (!cwd) return;
   const home = homedir();
   if (!home) return;
-  // 1) Global bypass-mode warning gate.
   try {
-    const dir = join(home, '.claude');
-    const p = join(dir, 'settings.json');
-    let s: Record<string, unknown> = {};
+    const p = join(home, '.claude.json');
+    let c: { projects?: Record<string, { hasTrustDialogAccepted?: boolean }> } = {};
     if (existsSync(p)) {
-      try { s = JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>; } catch { s = {}; }
+      try { c = JSON.parse(readFileSync(p, 'utf8')); } catch { c = {}; }
     }
-    if (s.skipDangerousModePermissionPrompt !== true || s.skipAutoPermissionPrompt !== true) {
-      s.skipDangerousModePermissionPrompt = true;
-      s.skipAutoPermissionPrompt = true;
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(p, JSON.stringify(s, null, 2), 'utf8');
+    if (c.projects?.[cwd]?.hasTrustDialogAccepted !== true) {
+      c.projects = c.projects ?? {};
+      c.projects[cwd] = { ...(c.projects[cwd] ?? {}), hasTrustDialogAccepted: true };
+      writeFileSync(p, JSON.stringify(c, null, 2), 'utf8');
     }
   } catch { /* best-effort; never block a spawn */ }
-  // 2) Per-folder trust dialog gate (only when this cwd isn't already trusted).
-  if (cwd) {
-    try {
-      const p = join(home, '.claude.json');
-      let c: { projects?: Record<string, { hasTrustDialogAccepted?: boolean }> } = {};
-      if (existsSync(p)) {
-        try { c = JSON.parse(readFileSync(p, 'utf8')); } catch { c = {}; }
-      }
-      if (c.projects?.[cwd]?.hasTrustDialogAccepted !== true) {
-        c.projects = c.projects ?? {};
-        c.projects[cwd] = { ...(c.projects[cwd] ?? {}), hasTrustDialogAccepted: true };
-        writeFileSync(p, JSON.stringify(c, null, 2), 'utf8');
-      }
-    } catch { /* best-effort */ }
-  }
 }

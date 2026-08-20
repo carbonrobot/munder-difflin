@@ -558,6 +558,9 @@ export class HiveManager {
        *  copied into the agent's `.claude/skills/` per spawn; undefined or missing
        *  is a no-op (tolerated until Kevin populates the resource dir). */
       skillsDir?: string;
+      /** Whether this session is launched in bypassPermissions mode. The one-time
+       *  consent is suppressed only for these explicitly autonomous sessions. */
+      autoMode?: boolean;
     } = {}
   ): Promise<SpawnInjection> {
     const root = this.root();
@@ -787,7 +790,7 @@ export class HiveManager {
     if (sock && shim) {
       env.HIVE_SOCK = sock;
       const settingsPath = join(dir, 'settings.json');
-      this.writeJson(settingsPath, this.hookSettings(shim, meta.cwd, opts.mcpDefaults, opts.theme));
+      this.writeJson(settingsPath, this.hookSettings(shim, meta.cwd, opts.mcpDefaults, opts.theme, opts.autoMode));
       args.push('--settings', settingsPath);
     }
     return { args, env };
@@ -846,7 +849,13 @@ export class HiveManager {
    *  (W3) the default MCP bundle merged into this PER-SESSION settings file. cwd
    *  scopes the filesystem/git servers; cfg (the consent map) gates which servers
    *  are written. Claude-only — this is invoked solely on the Claude spawn path. */
-  private hookSettings(shim: string, cwd: string, cfg: McpDefaultsMap, theme?: 'light' | 'dark'): unknown {
+  private hookSettings(
+    shim: string,
+    cwd: string,
+    cfg: McpDefaultsMap,
+    theme?: 'light' | 'dark',
+    autoMode = false
+  ): unknown {
     // Bundled node, NOT bare `node` — see nodeLauncherPath(). Claude runs each of
     // these through `sh -c` with a stripped PATH, where `node` is often absent.
     const cmd = this.nodeRun(shim);
@@ -856,13 +865,14 @@ export class HiveManager {
     });
     const mcpServers = this.buildDefaultMcpServers(cwd, cfg);
     return {
-      // Keep the bypass consent on the settings file loaded by THIS process.
-      // Writing it only to ~/.claude/settings.json is racy (another Claude
-      // process can overwrite that file) and targets the Windows home when the
-      // terminal runs in WSL. If the warning appears, the boot-time
-      // /remote-control submission confirms its default "No, exit" choice.
-      skipDangerousModePermissionPrompt: true,
-      skipAutoPermissionPrompt: true,
+      // Keep bypass consent scoped to the Auto Mode process that needs it. If
+      // the warning appears, the boot-time /remote-control submission confirms
+      // its default "No, exit" choice. The per-session --settings file also
+      // follows the process into WSL, unlike the Windows user's ~/.claude file.
+      ...(autoMode ? {
+        skipDangerousModePermissionPrompt: true,
+        skipAutoPermissionPrompt: true
+      } : {}),
       // Match the TUI's truecolor palette to the harness terminal theme —
       // PER SESSION, so the user's global Claude theme (their own terminals
       // outside the app) is never touched.

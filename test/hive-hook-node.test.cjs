@@ -108,11 +108,19 @@ test('the per-session Claude settings pre-accept the auto-mode warning', async (
   const home = tmpHome();
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const hive = new HiveManager(() => home);
-  await hive.ensureAgent({ id: 'god', name: 'Michael', provider: 'claude', cwd: home });
+  await hive.ensureAgent(
+    { id: 'god', name: 'Michael', provider: 'claude', cwd: home },
+    { autoMode: true }
+  );
+  await hive.ensureAgent({ id: 'manual', name: 'Jim', provider: 'claude', cwd: home });
 
-  const settings = JSON.parse(fs.readFileSync(path.join(home, 'hive/agents/god/settings.json'), 'utf8'));
-  assert.equal(settings.skipDangerousModePermissionPrompt, true);
-  assert.equal(settings.skipAutoPermissionPrompt, true);
+  const automatic = JSON.parse(fs.readFileSync(path.join(home, 'hive/agents/god/settings.json'), 'utf8'));
+  assert.equal(automatic.skipDangerousModePermissionPrompt, true);
+  assert.equal(automatic.skipAutoPermissionPrompt, true);
+
+  const manual = JSON.parse(fs.readFileSync(path.join(home, 'hive/agents/manual/settings.json'), 'utf8'));
+  assert.equal('skipDangerousModePermissionPrompt' in manual, false);
+  assert.equal('skipAutoPermissionPrompt' in manual, false);
 });
 
 test('every hook installer routes through the launcher — none left on bare node', async (t) => {

@@ -17,7 +17,7 @@ import { resolveCommand as resolveCliCommand } from './shellEnv';
 import { initAutoUpdater } from './updater';
 import { RealtimeFloorWatcher } from './realtimeFloorWatcher';
 import {
-  readConfig, writeConfig, resetConfig, ensureHarnessHome, ensureClaudePermissionsAccepted,
+  readConfig, writeConfig, resetConfig, ensureHarnessHome, ensureClaudeFolderTrusted,
   modelForRole, OPS_STANDUP_MISSION, HEARTBEAT_MISSION, COMPACT_MAINTENANCE_MISSION, type HarnessConfig, type ScheduledMission
 } from './config';
 import { listDir, readFileText, readFileBinary, writeFileText, statAbs, expandTilde } from './fs';
@@ -2553,7 +2553,8 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
           theme: readConfig().terminalTheme ?? 'light',
           // W3 — default-MCP consent state + the bundled skills source dir.
           mcpDefaults: readConfig().mcpDefaults,
-          skillsDir: skillsResourceDir()
+          skillsDir: skillsResourceDir(),
+          autoMode: readConfig().autoMode
         }
       );
       opts.args = [...(opts.args ?? []), ...inj.args];
@@ -2685,12 +2686,11 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
   // Remember which agent owns this PTY so closing the tab can archive it. A
   // live terminal means active — ensureAgent above already cleared `archived`.
   if (opts.hive?.id) ptyToAgent.set(opts.id, opts.hive.id);
-  // Pre-accept Claude Code's bypass-mode warning + folder-trust dialog so the
-  // agent (spawned with --permission-mode bypassPermissions) doesn't stall on an
-  // interactive prompt it can't answer and exit code 1. Best-effort, never blocks.
+  // Pre-accept the managed workspace's folder-trust dialog. Bypass-mode consent
+  // is scoped to Auto Mode in the per-session --settings file generated above.
   // Claude-only — other CLIs handle their own permission UX.
   if (claudeProvider) {
-    try { ensureClaudePermissionsAccepted(opts.cwd); } catch { /* never block spawn */ }
+    try { ensureClaudeFolderTrusted(opts.cwd); } catch { /* never block spawn */ }
   }
   // Suppress first-run interactive prompts for providers that need it (e.g. Codex
   // directory-trust gate via CODEX_NON_INTERACTIVE). Merges into any env already
